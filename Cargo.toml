@@ -1,0 +1,28 @@
+[package]
+name = "rpi-drm" # the name of the package
+version = "0.1.0"    # the current version, obeying semver
+authors = ["Jack Andersen <jackoalan@gmail.com>"]
+edition = "2021"
+
+[dependencies]
+drm = "0.9.0"
+num = "0.4.0"
+glam = "0.24.0"
+
+[dependencies.libc]
+version = "^0.2.29"
+default-features = false
+
+[dependencies.drm-sys]
+version = "0.4.0"
+
+[dependencies.drm-ffi]
+version = "0.5.0"
+
+[dependencies.drm-fourcc]
+version = "^2.2.0"
+
+[dependencies.nix]
+version = "0.26.0"
+features = ["ioctl"]
+default-features = false
