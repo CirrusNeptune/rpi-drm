@@ -48,7 +48,6 @@ fn open_and_allocate_display_framebuffers(card: &Card) -> DisplayFramebuffers {
 }
 
 
-
 fn main() {
     use std::os::unix::process::CommandExt;
     let current_exe = std::env::current_exe().unwrap();
@@ -62,7 +61,7 @@ fn main() {
 
     let display_framebuffers = open_and_allocate_display_framebuffers(&card);
 
-    const VS_ASM: [u64; 14] = qpu!{
+    const VS_ASM: [u64; 14] = qpu! {
         //0x40000000 = 2.0
         //uni = 1.0
         //rb0 = 2 - 1 = 1
@@ -112,7 +111,7 @@ fn main() {
         sig_none ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
     };
 
-    const CS_ASM: [u64; 18] = qpu!{
+    const CS_ASM: [u64; 18] = qpu! {
         //uni = 1.0
         //r3 = 2.0 - uni
         sig_small_imm ; r3 = fsub.always(b, a, uni, _2_1) ; nop = nop(r0, r0);
@@ -159,7 +158,7 @@ fn main() {
         sig_none ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
     };
 
-    const FS_ASM: [u64; 6] = qpu!{
+    const FS_ASM: [u64; 6] = qpu! {
         sig_none ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
         sig_load_imm ; r0 = load32.always(0xffa14ccc) ; nop = load32() ;
         sig_none ; tlb_color_all = or.always(r0, r0) ; nop = nop(r0, r0) ;
@@ -177,16 +176,20 @@ fn main() {
         let mut vbo_map = card.vc4_mmap_bo(&vbo).unwrap();
         let mut cur = Cursor::new(vbo_map.as_mut());
 
-        let height = f32::sqrt(3.0) / 2.0;
+        let rot_mat = glam::Mat2::default();
+        let side_len = 3.0 / f32::sqrt(3.0) / 2.0;
 
-        cur.write_all(&f32::from(-1.0).to_le_bytes()).unwrap();
-        cur.write_all(&f32::from(height).to_le_bytes()).unwrap();
+        let v0 = rot_mat.mul_vec2([-side_len, 0.5].into());
+        cur.write_all(&f32::from(v0.x).to_le_bytes()).unwrap();
+        cur.write_all(&f32::from(v0.y).to_le_bytes()).unwrap();
 
-        cur.write_all(&f32::from(1.0).to_le_bytes()).unwrap();
-        cur.write_all(&f32::from(height).to_le_bytes()).unwrap();
+        let v1 = rot_mat.mul_vec2([side_len, 0.5].into());
+        cur.write_all(&f32::from(v1.x).to_le_bytes()).unwrap();
+        cur.write_all(&f32::from(v1.y).to_le_bytes()).unwrap();
 
-        cur.write_all(&f32::from(0.0).to_le_bytes()).unwrap();
-        cur.write_all(&f32::from(-height).to_le_bytes()).unwrap();
+        let v2 = rot_mat.mul_vec2([0.0, -1.0].into());
+        cur.write_all(&f32::from(v2.x).to_le_bytes()).unwrap();
+        cur.write_all(&f32::from(v2.y).to_le_bytes()).unwrap();
     }
 
     let uniforms = [
@@ -350,22 +353,21 @@ fn main() {
     let mut i = 0;
     loop {
         {
-            use glam::{Mat2, Vec2};
-            let rot_mat = Mat2::from_angle(i as f32 * 2.0 * std::f32::consts::PI / 2048.0);
+            let rot_mat = glam::Mat2::from_angle(i as f32 * 2.0 * std::f32::consts::PI / 2048.0);
             let mut vbo_map = card.vc4_mmap_bo(&vbo).unwrap();
             let mut cur = Cursor::new(vbo_map.as_mut());
 
-            let height = f32::sqrt(3.0) / 2.0;
+            let side_len = 3.0 / f32::sqrt(3.0) / 2.0;
 
-            let v0 = rot_mat.mul_vec2([-1.0, height].into());
+            let v0 = rot_mat.mul_vec2([-side_len, 0.5].into());
             cur.write_all(&f32::from(v0.x).to_le_bytes()).unwrap();
             cur.write_all(&f32::from(v0.y).to_le_bytes()).unwrap();
 
-            let v1 = rot_mat.mul_vec2([1.0, height].into());
+            let v1 = rot_mat.mul_vec2([side_len, 0.5].into());
             cur.write_all(&f32::from(v1.x).to_le_bytes()).unwrap();
             cur.write_all(&f32::from(v1.y).to_le_bytes()).unwrap();
 
-            let v2 = rot_mat.mul_vec2([0.0, -height].into());
+            let v2 = rot_mat.mul_vec2([0.0, -1.0].into());
             cur.write_all(&f32::from(v2.x).to_le_bytes()).unwrap();
             cur.write_all(&f32::from(v2.y).to_le_bytes()).unwrap();
         }
