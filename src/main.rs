@@ -1,13 +1,13 @@
 #![recursion_limit = "10000"]
 
+mod qpu;
 mod vc4_card;
 mod vc4_cl;
 pub mod vc4_image;
-mod qpu;
 
+use drm::control::{connector::State, Device};
 use std::io::Write;
-use drm::control::{Device, connector::State};
-use vc4_card::{Card, Buffer, drm_vc4_submit_rcl_surface};
+use vc4_card::{drm_vc4_submit_rcl_surface, Buffer, Card};
 use vc4_cl::*;
 
 use std::io::Cursor;
@@ -24,13 +24,26 @@ struct DisplayFramebuffers {
 
 impl DisplayFramebuffers {
     pub fn set_crtc(&self, card: &Card) {
-        card.set_crtc(self.crtc, Some(self.framebuffer), (0, 0), &[self.connector], Some(self.mode)).expect("unable to set_crtc");
+        card.set_crtc(
+            self.crtc,
+            Some(self.framebuffer),
+            (0, 0),
+            &[self.connector],
+            Some(self.mode),
+        )
+        .expect("unable to set_crtc");
     }
 }
 
 fn open_and_allocate_display_framebuffers(card: &Card) -> DisplayFramebuffers {
-    for connector in card.resource_handles().expect("Unable to get resource handles").connectors() {
-        let connector_info = card.get_connector(*connector, false).expect("Unable to get_connector");
+    for connector in card
+        .resource_handles()
+        .expect("Unable to get resource handles")
+        .connectors()
+    {
+        let connector_info = card
+            .get_connector(*connector, false)
+            .expect("Unable to get_connector");
         if connector_info.state() != State::Connected {
             continue;
         }
@@ -38,16 +51,30 @@ fn open_and_allocate_display_framebuffers(card: &Card) -> DisplayFramebuffers {
             continue;
         }
         let mode = connector_info.modes()[0];
-        let current_encoder = connector_info.current_encoder().expect("unable to get current encoder");
-        let encoder_info = card.get_encoder(current_encoder).expect("unable to get encoder info");
+        let current_encoder = connector_info
+            .current_encoder()
+            .expect("unable to get current encoder");
+        let encoder_info = card
+            .get_encoder(current_encoder)
+            .expect("unable to get encoder info");
         let crtc = encoder_info.crtc().expect("unable to get crtc");
-        let image_buffer = card.vc4_create_bgra_image_buffer((mode.size().0 as u32, mode.size().1 as u32)).expect("unable to create image buffer");
-        let framebuffer = card.add_framebuffer(&image_buffer, 32, 32).expect("unable to add framebuffer");
-        return DisplayFramebuffers { size: mode.size(), bo: image_buffer.buffer(), crtc, framebuffer, connector: *connector, mode };
-    };
+        let image_buffer = card
+            .vc4_create_bgra_image_buffer((mode.size().0 as u32, mode.size().1 as u32))
+            .expect("unable to create image buffer");
+        let framebuffer = card
+            .add_framebuffer(&image_buffer, 32, 32)
+            .expect("unable to add framebuffer");
+        return DisplayFramebuffers {
+            size: mode.size(),
+            bo: image_buffer.buffer(),
+            crtc,
+            framebuffer,
+            connector: *connector,
+            mode,
+        };
+    }
     panic!("Couldn't find a display");
 }
-
 
 fn main() {
     use std::os::unix::process::CommandExt;
@@ -195,9 +222,15 @@ fn main() {
         sig_unlock_score ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
     };
 
-    let vs = card.vc4_create_shader_bo(&VS_ASM).expect("unable to create vs");
-    let cs = card.vc4_create_shader_bo(&CS_ASM).expect("unable to create cs");
-    let fs = card.vc4_create_shader_bo(&FS_ASM).expect("unable to create fs");
+    let vs = card
+        .vc4_create_shader_bo(&VS_ASM)
+        .expect("unable to create vs");
+    let cs = card
+        .vc4_create_shader_bo(&CS_ASM)
+        .expect("unable to create cs");
+    let fs = card
+        .vc4_create_shader_bo(&FS_ASM)
+        .expect("unable to create fs");
 
     let vbo = card.vc4_create_bo(24).unwrap();
     {
@@ -226,7 +259,6 @@ fn main() {
         u32::from_le_bytes(((display_framebuffers.size.0 * 16 / 2) as f32).to_le_bytes()),
         u32::from_le_bytes(((display_framebuffers.size.1 * 16 / 2) as f32).to_le_bytes()),
         u32::from_le_bytes(1.0_f32.to_le_bytes()),
-
         // CS uniforms
         u32::from_le_bytes(1.0_f32.to_le_bytes()),
         u32::from_le_bytes(((display_framebuffers.size.0 * 16 / 2) as f32).to_le_bytes()),
@@ -240,14 +272,17 @@ fn main() {
 
     let mut tile_bin_config = TileBinningModeConfiguration::default();
     tile_bin_config.set_size_in_pixels(display_framebuffers.size.0, display_framebuffers.size.1);
-    tile_bin_config.encode(&mut bin_cl_buf).expect("unable to write TileBinningModeConfiguration");
+    tile_bin_config
+        .encode(&mut bin_cl_buf)
+        .expect("unable to write TileBinningModeConfiguration");
 
     // START_TILE_BINNING resets the statechange counters in the hardware,
     // which are what is used when a primitive is binned to a tile to
     // figure out what new state packets need to be written to that tile's
     // command list.
-    StartTileBinning::default().encode(&mut bin_cl_buf).expect("unable to write StartTileBinning");
-
+    StartTileBinning::default()
+        .encode(&mut bin_cl_buf)
+        .expect("unable to write StartTileBinning");
 
     LineWidth::default().encode(&mut bin_cl_buf).unwrap();
 
@@ -256,17 +291,23 @@ fn main() {
         clip_window_bottom_pixel_coordinate: 0,
         clip_window_width_in_pixels: display_framebuffers.size.0,
         clip_window_height_in_pixels: display_framebuffers.size.1,
-    }.encode(&mut bin_cl_buf).unwrap();
+    }
+    .encode(&mut bin_cl_buf)
+    .unwrap();
 
     ClipperXYScaling {
         viewport_half_width_in_1_16th_of_pixel: (display_framebuffers.size.0 * 16 / 2) as f32,
         viewport_half_height_in_1_16th_of_pixel: (display_framebuffers.size.1 * 16 / 2) as f32,
-    }.encode(&mut bin_cl_buf).unwrap();
+    }
+    .encode(&mut bin_cl_buf)
+    .unwrap();
 
     ViewportOffset {
         viewport_centre_x_coordinate_12_4: display_framebuffers.size.0 * 16 / 2,
         viewport_centre_y_coordinate_12_4: display_framebuffers.size.1 * 16 / 2,
-    }.encode(&mut bin_cl_buf).unwrap();
+    }
+    .encode(&mut bin_cl_buf)
+    .unwrap();
 
     let depth_test_enable = false;
     let depth_write_enable = false;
@@ -274,7 +315,11 @@ fn main() {
         early_z_updates_enable: true,
         early_z_enable: depth_test_enable,
         z_updates_enable: depth_write_enable && depth_test_enable,
-        depth_test_function: if depth_test_enable { CompareFunction::LEqual } else { CompareFunction::Always },
+        depth_test_function: if depth_test_enable {
+            CompareFunction::LEqual
+        } else {
+            CompareFunction::Always
+        },
         coverage_read_mode: false,
         coverage_pipe_select: false,
         coverage_update_mode: 0,
@@ -285,31 +330,41 @@ fn main() {
         clockwise_primitives: false,
         enable_reverse_facing_primitive: true,
         enable_forward_facing_primitive: true,
-    }.encode(&mut bin_cl_buf).unwrap();
+    }
+    .encode(&mut bin_cl_buf)
+    .unwrap();
 
     DepthOffset {
         depth_offset_factor: 0,
         depth_offset_units: 0,
-    }.encode(&mut bin_cl_buf).unwrap();
+    }
+    .encode(&mut bin_cl_buf)
+    .unwrap();
 
     ClipperZScaleAndOffset {
         viewport_z_scale_zc_to_zs: 1.0,
         viewport_z_offset_zc_to_zs: 0.0,
-    }.encode(&mut bin_cl_buf).unwrap();
+    }
+    .encode(&mut bin_cl_buf)
+    .unwrap();
 
-    PointSize {
-        point_size: 1.0,
-    }.encode(&mut bin_cl_buf).unwrap();
+    PointSize { point_size: 1.0 }
+        .encode(&mut bin_cl_buf)
+        .unwrap();
 
     FlatShadeFlags {
         flat_shading_flags: 0,
-    }.encode(&mut bin_cl_buf).unwrap();
+    }
+    .encode(&mut bin_cl_buf)
+    .unwrap();
 
     GlShaderState {
         address: 0,
         extended_shader_record: false,
         number_of_attribute_arrays: 1,
-    }.encode(&mut bin_cl_buf).unwrap();
+    }
+    .encode(&mut bin_cl_buf)
+    .unwrap();
 
     shader_rec_count += 1;
     shader_rec_buf.write_all(&1_u32.to_le_bytes()).unwrap();
@@ -335,7 +390,9 @@ fn main() {
         coordinate_shader_total_attributes_size: 8,
         coordinate_shader_code_address_offset: 0,
         coordinate_shader_uniforms_address: 0,
-    }.encode(&mut shader_rec_buf).unwrap();
+    }
+    .encode(&mut shader_rec_buf)
+    .unwrap();
 
     AttributeRecord {
         address: 0,
@@ -343,21 +400,29 @@ fn main() {
         stride: 8,
         vertex_shader_vpm_offset: 0,
         coordinate_shader_vpm_offset: 0,
-    }.encode(&mut shader_rec_buf).unwrap();
+    }
+    .encode(&mut shader_rec_buf)
+    .unwrap();
 
     VertexArrayPrimitives {
         index_of_first_vertex: 0,
         length: 3,
         primitive_mode: PrimitiveMode::Triangles,
-    }.encode(&mut bin_cl_buf).unwrap();
+    }
+    .encode(&mut bin_cl_buf)
+    .unwrap();
 
     // Increment the semaphore indicating that binning is done and
     // unblocking the render thread.  Note that this doesn't act
     // until the FLUSH completes.
     // The FLUSH caps all of our bin lists with a
     // VC4_PACKET_RETURN.
-    IncrementSemaphore::default().encode(&mut bin_cl_buf).expect("unable to write IncrementSemaphore");
-    Flush::default().encode(&mut bin_cl_buf).expect("unable to write IncrementSemaphore");
+    IncrementSemaphore::default()
+        .encode(&mut bin_cl_buf)
+        .expect("unable to write IncrementSemaphore");
+    Flush::default()
+        .encode(&mut bin_cl_buf)
+        .expect("unable to write IncrementSemaphore");
 
     let mut color_write = drm_vc4_submit_rcl_surface::default();
     color_write.hindex = 0;
@@ -365,17 +430,9 @@ fn main() {
     const VC4_TILING_FORMAT_LINEAR: u16 = 0;
     const VC4_TILING_FORMAT_T: u16 = 1;
     const VC4_TILING_FORMAT_LT: u16 = 2;
-    color_write.bits =
-        VC4_RENDER_CONFIG_FORMAT_RGBA8888 << 2 |
-            VC4_TILING_FORMAT_T << 6;
+    color_write.bits = VC4_RENDER_CONFIG_FORMAT_RGBA8888 << 2 | VC4_TILING_FORMAT_T << 6;
 
-    let bo_handles = [
-        display_framebuffers.bo.into(),
-        fs,
-        vs,
-        cs,
-        vbo.handle()
-    ];
+    let bo_handles = [display_framebuffers.bo.into(), fs, vs, cs, vbo.handle()];
     display_framebuffers.set_crtc(&card);
 
     let mut i = 0;
@@ -402,32 +459,36 @@ fn main() {
 
         let start = Instant::now();
         let clear_color = 0xffffffff;
-        let seqno = card.vc4_submit_cl(
-            &bin_cl_buf,
-            &shader_rec_buf,
-            &uniforms,
-            &bo_handles,
-            shader_rec_count,
-            display_framebuffers.size.0,
-            display_framebuffers.size.1,
-            0,
-            0,
-            tile_bin_config.width_in_tiles - 1,
-            tile_bin_config.height_in_tiles - 1,
-            drm_vc4_submit_rcl_surface::default(),
-            color_write,
-            drm_vc4_submit_rcl_surface::default(),
-            drm_vc4_submit_rcl_surface::default(),
-            drm_vc4_submit_rcl_surface::default(),
-            drm_vc4_submit_rcl_surface::default(),
-            [clear_color, clear_color],
-            0,
-            0,
-            true,
-            false,
-            false,
-            false).expect("Unable to vc4_submit_cl");
-        card.vc4_wait_seqno(seqno, u64::MAX).expect("Unable to vc4_wait_seqno");
+        let seqno = card
+            .vc4_submit_cl(
+                &bin_cl_buf,
+                &shader_rec_buf,
+                &uniforms,
+                &bo_handles,
+                shader_rec_count,
+                display_framebuffers.size.0,
+                display_framebuffers.size.1,
+                0,
+                0,
+                tile_bin_config.width_in_tiles - 1,
+                tile_bin_config.height_in_tiles - 1,
+                drm_vc4_submit_rcl_surface::default(),
+                color_write,
+                drm_vc4_submit_rcl_surface::default(),
+                drm_vc4_submit_rcl_surface::default(),
+                drm_vc4_submit_rcl_surface::default(),
+                drm_vc4_submit_rcl_surface::default(),
+                [clear_color, clear_color],
+                0,
+                0,
+                true,
+                false,
+                false,
+                false,
+            )
+            .expect("Unable to vc4_submit_cl");
+        card.vc4_wait_seqno(seqno, u64::MAX)
+            .expect("Unable to vc4_wait_seqno");
         //println!("{}ms", (Instant::now() - start).as_millis());
 
         i += 1;

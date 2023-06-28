@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use std::io::{Write, Result};
+use std::io::{Result, Write};
 
 fn gen_u8(v: u8, start: usize, end: usize) -> u8 {
     if cfg!(debug_assertions) {
@@ -23,19 +23,27 @@ fn gen_u32(v: u32, start: usize, end: usize) -> u32 {
 
 fn div_round_up(n: u16, d: u16) -> u16 {
     if cfg!(debug_assertions) {
-        n.checked_add(d).unwrap().checked_sub(1).unwrap().checked_div(d).unwrap()
+        n.checked_add(d)
+            .unwrap()
+            .checked_sub(1)
+            .unwrap()
+            .checked_div(d)
+            .unwrap()
     } else {
         (n + d - 1) / d
     }
 }
 
+use fmt::Debug;
 use num::cast::AsPrimitive;
-use std::marker::Copy;
 use std::convert::TryFrom;
 use std::fmt;
-use fmt::Debug;
+use std::marker::Copy;
 
-fn checked_into<T: AsPrimitive<U>, U: 'static + Copy + TryFrom<T>>(v: T) -> U where <U as TryFrom<T>>::Error: Debug {
+fn checked_into<T: AsPrimitive<U>, U: 'static + Copy + TryFrom<T>>(v: T) -> U
+where
+    <U as TryFrom<T>>::Error: Debug,
+{
     if cfg!(debug_assertions) {
         v.try_into().unwrap()
     } else {
@@ -101,12 +109,12 @@ impl BinClStructure for TileBinningModeConfiguration {
         buf[9..13].copy_from_slice(&self.tile_state_data_array_address.to_le_bytes());
         buf[13] = self.width_in_tiles;
         buf[14] = self.height_in_tiles;
-        buf[15] = gen_u8(self.double_buffer_in_non_ms_mode as u8, 7, 7) |
-            gen_u8(self.tile_allocation_block_size as u8, 5, 6) |
-            gen_u8(self.tile_allocation_initial_block_size as u8, 3, 4) |
-            gen_u8(self.auto_initialise_tile_state_data_array as u8, 2, 2) |
-            gen_u8(self.tile_buffer_64_bit_color_depth as u8, 1, 1) |
-            gen_u8(self.multisample_mode_4x as u8, 0, 0);
+        buf[15] = gen_u8(self.double_buffer_in_non_ms_mode as u8, 7, 7)
+            | gen_u8(self.tile_allocation_block_size as u8, 5, 6)
+            | gen_u8(self.tile_allocation_initial_block_size as u8, 3, 4)
+            | gen_u8(self.auto_initialise_tile_state_data_array as u8, 2, 2)
+            | gen_u8(self.tile_buffer_64_bit_color_depth as u8, 1, 1)
+            | gen_u8(self.multisample_mode_4x as u8, 0, 0);
         writer.write_all(&buf)
     }
 }
@@ -248,20 +256,20 @@ impl BinClStructure for ConfigurationBits {
         const V3D21_CONFIGURATION_BITS: u8 = 96;
         writer.write_all(&[
             V3D21_CONFIGURATION_BITS,
-            gen_u8(self.rasteriser_oversample_mode, 6, 7) |
-                gen_u8(self.coverage_read_type as u8, 5, 5) |
-                gen_u8(self.antialiased_points_and_lines as u8, 4, 4) |
-                gen_u8(self.enable_depth_offset as u8, 3, 3) |
-                gen_u8(self.clockwise_primitives as u8, 2, 2) |
-                gen_u8(self.enable_reverse_facing_primitive as u8, 1, 1) |
-                gen_u8(self.enable_forward_facing_primitive as u8, 0, 0),
-            gen_u8(self.z_updates_enable as u8, 7, 7) |
-                gen_u8(self.depth_test_function as u8, 4, 6) |
-                gen_u8(self.coverage_read_mode as u8, 3, 3) |
-                gen_u8(self.coverage_update_mode, 1, 2) |
-                gen_u8(self.coverage_pipe_select as u8, 0, 0),
-            gen_u8(self.early_z_updates_enable as u8, 1, 1) |
-                gen_u8(self.early_z_enable as u8, 0, 0)
+            gen_u8(self.rasteriser_oversample_mode, 6, 7)
+                | gen_u8(self.coverage_read_type as u8, 5, 5)
+                | gen_u8(self.antialiased_points_and_lines as u8, 4, 4)
+                | gen_u8(self.enable_depth_offset as u8, 3, 3)
+                | gen_u8(self.clockwise_primitives as u8, 2, 2)
+                | gen_u8(self.enable_reverse_facing_primitive as u8, 1, 1)
+                | gen_u8(self.enable_forward_facing_primitive as u8, 0, 0),
+            gen_u8(self.z_updates_enable as u8, 7, 7)
+                | gen_u8(self.depth_test_function as u8, 4, 6)
+                | gen_u8(self.coverage_read_mode as u8, 3, 3)
+                | gen_u8(self.coverage_update_mode, 1, 2)
+                | gen_u8(self.coverage_pipe_select as u8, 0, 0),
+            gen_u8(self.early_z_updates_enable as u8, 1, 1)
+                | gen_u8(self.early_z_enable as u8, 0, 0),
         ])
     }
 }
@@ -374,7 +382,12 @@ impl BinClStructure for GlShaderState {
         const V3D21_GL_SHADER_STATE: u8 = 64;
         let mut buf = [0_u8; 5];
         buf[0] = V3D21_GL_SHADER_STATE;
-        buf[1..5].copy_from_slice(&(self.address | ((self.extended_shader_record as u32) << 3) | self.number_of_attribute_arrays as u32).to_le_bytes());
+        buf[1..5].copy_from_slice(
+            &(self.address
+                | ((self.extended_shader_record as u32) << 3)
+                | self.number_of_attribute_arrays as u32)
+                .to_le_bytes(),
+        );
         writer.write_all(&buf)
     }
 }
@@ -403,20 +416,28 @@ pub struct GlShaderRecord {
 impl BinClStructure for GlShaderRecord {
     fn encode<W: Write>(&self, writer: &mut W) -> Result<()> {
         let mut buf = [0_u8; 36];
-        buf[0] = gen_u8(self.fragment_shader_is_single_threaded as u8, 0, 0) |
-            gen_u8(self.point_size_included_in_shaded_vertex_data as u8, 1, 1) |
-            gen_u8(self.enable_clipping as u8, 2, 2);
+        buf[0] = gen_u8(self.fragment_shader_is_single_threaded as u8, 0, 0)
+            | gen_u8(self.point_size_included_in_shaded_vertex_data as u8, 1, 1)
+            | gen_u8(self.enable_clipping as u8, 2, 2);
         buf[2] = self.fragment_shader_number_of_uniforms_not_used_currently as u8;
         buf[3] = self.fragment_shader_number_of_varyings;
         buf[4..8].copy_from_slice(&self.fragment_shader_code_address_offset.to_le_bytes());
         buf[8..12].copy_from_slice(&self.fragment_shader_uniforms_address.to_le_bytes());
-        buf[12..14].copy_from_slice(&self.vertex_shader_number_of_uniforms_not_used_currently.to_le_bytes());
+        buf[12..14].copy_from_slice(
+            &self
+                .vertex_shader_number_of_uniforms_not_used_currently
+                .to_le_bytes(),
+        );
         buf[14] = self.vertex_shader_attribute_array_select_bits;
         buf[15] = self.vertex_shader_total_attributes_size;
         // Uniform and code overlap in C implementation??? Cannot use vertex shader code offset.
         //buf[16..20].copy_from_slice(&self.vertex_shader_code_address_offset.to_le_bytes());
         buf[16..20].copy_from_slice(&self.vertex_shader_uniforms_address.to_le_bytes());
-        buf[24..26].copy_from_slice(&self.coordinate_shader_number_of_uniforms_not_used_currently.to_le_bytes());
+        buf[24..26].copy_from_slice(
+            &self
+                .coordinate_shader_number_of_uniforms_not_used_currently
+                .to_le_bytes(),
+        );
         buf[26] = self.coordinate_shader_attribute_array_select_bits;
         buf[27] = self.coordinate_shader_total_attributes_size;
         buf[28..32].copy_from_slice(&self.coordinate_shader_code_address_offset.to_le_bytes());

@@ -985,7 +985,11 @@ enum VpmSize {
 }
 
 pub const fn vpm_block_read_horizontal_32(num_reads: u8, stride: u8, y: u8) -> u32 {
-    ((num_reads as u32) << 20) | ((stride as u32) << 12) | (1 << 11) | ((VpmSize::_32bit as u32) << 8) | (y as u32)
+    ((num_reads as u32) << 20)
+        | ((stride as u32) << 12)
+        | (1 << 11)
+        | ((VpmSize::_32bit as u32) << 8)
+        | (y as u32)
 }
 
 pub const fn vpm_block_write_horizontal_32(stride: u8, y: u8) -> u32 {
@@ -993,15 +997,24 @@ pub const fn vpm_block_write_horizontal_32(stride: u8, y: u8) -> u32 {
 }
 
 pub const fn vpm_block_read_vertical_32(num_reads: u8, stride: u8, y: u8, x: u8) -> u32 {
-    ((num_reads as u32) << 20) | ((stride as u32) << 12) | (0 << 11) | ((VpmSize::_32bit as u32) << 8) | ((y as u32) << 4) | (x as u32)
+    ((num_reads as u32) << 20)
+        | ((stride as u32) << 12)
+        | (0 << 11)
+        | ((VpmSize::_32bit as u32) << 8)
+        | ((y as u32) << 4)
+        | (x as u32)
 }
 
 pub const fn vpm_block_write_vertical_32(stride: u8, y: u8, x: u8) -> u32 {
-    ((stride as u32) << 12) | (0 << 11) | ((VpmSize::_32bit as u32) << 8) | ((y as u32) << 4) | (x as u32)
+    ((stride as u32) << 12)
+        | (0 << 11)
+        | ((VpmSize::_32bit as u32) << 8)
+        | ((y as u32) << 4)
+        | (x as u32)
 }
 
 pub fn assemble() {
-    const BLAH: [u64; 14] = qpu!{
+    const BLAH: [u64; 14] = qpu! {
         //0x40000000 = 2.0
         //uni = 1.0
         //rb0 = 2 - 1 = 1

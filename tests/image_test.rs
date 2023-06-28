@@ -1,5 +1,5 @@
-use rpi_drm::vc4_image::*;
 use glam::UVec2;
+use rpi_drm::vc4_image::*;
 
 fn assert_translate(translator: &Translator, x: u32, y: u32, expected_offset: u32) {
     let vec = UVec2::new(x, y);
@@ -29,7 +29,7 @@ fn vc4_image_32bpp_subtiles() {
 }
 
 #[test]
-fn vc4_image_32bpp_tiles_even() {
+fn vc4_image_32bpp_tiles_even_pot() {
     let translator = Translator::new((1024, 1024).into(), 32);
 
     assert_translate(&translator, 0, 16, 1024);
@@ -38,7 +38,16 @@ fn vc4_image_32bpp_tiles_even() {
 }
 
 #[test]
-fn vc4_image_32bpp_tiles_odd() {
+fn vc4_image_32bpp_tiles_even_npot() {
+    let translator = Translator::new((1024 - 32, 1024 - 32).into(), 32);
+
+    assert_translate(&translator, 0, 16, 1024);
+    assert_translate(&translator, 16, 16, 2 * 1024);
+    assert_translate(&translator, 16, 0, 3 * 1024);
+}
+
+#[test]
+fn vc4_image_32bpp_tiles_odd_pot() {
     let translator = Translator::new((1024, 1024).into(), 32);
 
     assert_translate(&translator, 16, 32 + 16, 63 * 4096);
@@ -46,14 +55,29 @@ fn vc4_image_32bpp_tiles_odd() {
     assert_translate(&translator, 0, 32, 63 * 4096 + 2 * 1024);
     assert_translate(&translator, 0, 32 + 16, 63 * 4096 + 3 * 1024);
 
-    assert_translate(&translator, 992 + 16, 32 + 16, 32 * 4096);
-    assert_translate(&translator, 992 + 16, 32, 32 * 4096 + 1024);
-    assert_translate(&translator, 992, 32, 32 * 4096 + 2 * 1024);
-    assert_translate(&translator, 992, 32 + 16, 32 * 4096 + 3 * 1024);
+    assert_translate(&translator, 1024 - 32 + 16, 32 + 16, 32 * 4096);
+    assert_translate(&translator, 1024 - 32 + 16, 32, 32 * 4096 + 1024);
+    assert_translate(&translator, 1024 - 32, 32, 32 * 4096 + 2 * 1024);
+    assert_translate(&translator, 1024 - 32, 32 + 16, 32 * 4096 + 3 * 1024);
 }
 
 #[test]
-fn vc4_image_32bpp_utiles_lt() {
+fn vc4_image_32bpp_tiles_odd_npot() {
+    let translator = Translator::new((1024 - 32, 1024 - 32).into(), 32);
+
+    assert_translate(&translator, 16, 32 + 16, 61 * 4096);
+    assert_translate(&translator, 16, 32, 61 * 4096 + 1024);
+    assert_translate(&translator, 0, 32, 61 * 4096 + 2 * 1024);
+    assert_translate(&translator, 0, 32 + 16, 61 * 4096 + 3 * 1024);
+
+    assert_translate(&translator, 1024 - 32 - 32 + 16, 32 + 16, 31 * 4096);
+    assert_translate(&translator, 1024 - 32 - 32 + 16, 32, 31 * 4096 + 1024);
+    assert_translate(&translator, 1024 - 32 - 32, 32, 31 * 4096 + 2 * 1024);
+    assert_translate(&translator, 1024 - 32 - 32, 32 + 16, 31 * 4096 + 3 * 1024);
+}
+
+#[test]
+fn vc4_image_32bpp_utiles_lt_pot() {
     let translator = Translator::new((8, 8).into(), 32);
 
     assert_translate(&translator, 0, 0, 0);
@@ -65,4 +89,19 @@ fn vc4_image_32bpp_utiles_lt() {
     assert_translate(&translator, 7, 0, 64 + 3 * 4);
     assert_translate(&translator, 0, 7, 2 * 64 + 3 * 16);
     assert_translate(&translator, 7, 7, 3 * 64 + 3 * 16 + 3 * 4);
+}
+
+#[test]
+fn vc4_image_32bpp_utiles_lt_npot() {
+    let translator = Translator::new((12, 12).into(), 32);
+
+    assert_translate(&translator, 0, 0, 0);
+    assert_translate(&translator, 3, 0, 3 * 4);
+    assert_translate(&translator, 0, 3, 12 * 4);
+    assert_translate(&translator, 3, 3, 15 * 4);
+
+    assert_translate(&translator, 4, 0, 64);
+    assert_translate(&translator, 7, 0, 64 + 3 * 4);
+    assert_translate(&translator, 0, 7, 3 * 64 + 3 * 16);
+    assert_translate(&translator, 7, 7, 4 * 64 + 3 * 16 + 3 * 4);
 }

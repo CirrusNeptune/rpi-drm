@@ -1,9 +1,9 @@
 mod ffi {
     #![allow(nonstandard_style)]
 
-    use std::os::fd::RawFd;
-    use std::mem::transmute;
     use drm_ffi::result::SystemError;
+    use std::mem::transmute;
+    use std::os::fd::RawFd;
 
     pub type __u8 = libc::c_uchar;
     pub type __u16 = libc::c_ushort;
@@ -21,7 +21,12 @@ mod ffi {
 
     impl Default for drm_vc4_submit_rcl_surface {
         fn default() -> Self {
-            Self { hindex: u32::MAX, offset: 0, bits: 0, flags: 0 }
+            Self {
+                hindex: u32::MAX,
+                offset: 0,
+                bits: 0,
+                flags: 0,
+            }
         }
     }
 
@@ -233,21 +238,96 @@ mod ffi {
     mod ioctl {
         use super::*;
         use nix::ioctl_readwrite;
-        ioctl_readwrite!(vc4_submit_cl, drm_sys::DRM_IOCTL_BASE, drm_sys::DRM_COMMAND_BASE + 0x0, drm_vc4_submit_cl);
-        ioctl_readwrite!(vc4_wait_seqno, drm_sys::DRM_IOCTL_BASE, drm_sys::DRM_COMMAND_BASE + 0x1, drm_vc4_wait_seqno);
-        ioctl_readwrite!(vc4_wait_bo, drm_sys::DRM_IOCTL_BASE, drm_sys::DRM_COMMAND_BASE + 0x2, drm_vc4_wait_bo);
-        ioctl_readwrite!(vc4_create_bo, drm_sys::DRM_IOCTL_BASE, drm_sys::DRM_COMMAND_BASE + 0x3, drm_vc4_create_bo);
-        ioctl_readwrite!(vc4_mmap_bo, drm_sys::DRM_IOCTL_BASE, drm_sys::DRM_COMMAND_BASE + 0x4, drm_vc4_mmap_bo);
-        ioctl_readwrite!(vc4_create_shader_bo, drm_sys::DRM_IOCTL_BASE, drm_sys::DRM_COMMAND_BASE + 0x5, drm_vc4_create_shader_bo);
-        ioctl_readwrite!(vc4_get_hang_state, drm_sys::DRM_IOCTL_BASE, drm_sys::DRM_COMMAND_BASE + 0x6, drm_vc4_get_hang_state);
-        ioctl_readwrite!(vc4_get_param, drm_sys::DRM_IOCTL_BASE, drm_sys::DRM_COMMAND_BASE + 0x7, drm_vc4_get_param);
-        ioctl_readwrite!(vc4_set_tiling, drm_sys::DRM_IOCTL_BASE, drm_sys::DRM_COMMAND_BASE + 0x8, drm_vc4_set_tiling);
-        ioctl_readwrite!(vc4_get_tiling, drm_sys::DRM_IOCTL_BASE, drm_sys::DRM_COMMAND_BASE + 0x9, drm_vc4_get_tiling);
-        ioctl_readwrite!(vc4_label_bo, drm_sys::DRM_IOCTL_BASE, drm_sys::DRM_COMMAND_BASE + 0xa, drm_vc4_label_bo);
-        ioctl_readwrite!(vc4_gem_madvise, drm_sys::DRM_IOCTL_BASE, drm_sys::DRM_COMMAND_BASE + 0xb, drm_vc4_gem_madvise);
-        ioctl_readwrite!(vc4_perfmon_create, drm_sys::DRM_IOCTL_BASE, drm_sys::DRM_COMMAND_BASE + 0xc, drm_vc4_perfmon_create);
-        ioctl_readwrite!(vc4_perfmon_destroy, drm_sys::DRM_IOCTL_BASE, drm_sys::DRM_COMMAND_BASE + 0xd, drm_vc4_perfmon_destroy);
-        ioctl_readwrite!(vc4_perfmon_get_values, drm_sys::DRM_IOCTL_BASE, drm_sys::DRM_COMMAND_BASE + 0xe, drm_vc4_perfmon_get_values);
+        ioctl_readwrite!(
+            vc4_submit_cl,
+            drm_sys::DRM_IOCTL_BASE,
+            drm_sys::DRM_COMMAND_BASE + 0x0,
+            drm_vc4_submit_cl
+        );
+        ioctl_readwrite!(
+            vc4_wait_seqno,
+            drm_sys::DRM_IOCTL_BASE,
+            drm_sys::DRM_COMMAND_BASE + 0x1,
+            drm_vc4_wait_seqno
+        );
+        ioctl_readwrite!(
+            vc4_wait_bo,
+            drm_sys::DRM_IOCTL_BASE,
+            drm_sys::DRM_COMMAND_BASE + 0x2,
+            drm_vc4_wait_bo
+        );
+        ioctl_readwrite!(
+            vc4_create_bo,
+            drm_sys::DRM_IOCTL_BASE,
+            drm_sys::DRM_COMMAND_BASE + 0x3,
+            drm_vc4_create_bo
+        );
+        ioctl_readwrite!(
+            vc4_mmap_bo,
+            drm_sys::DRM_IOCTL_BASE,
+            drm_sys::DRM_COMMAND_BASE + 0x4,
+            drm_vc4_mmap_bo
+        );
+        ioctl_readwrite!(
+            vc4_create_shader_bo,
+            drm_sys::DRM_IOCTL_BASE,
+            drm_sys::DRM_COMMAND_BASE + 0x5,
+            drm_vc4_create_shader_bo
+        );
+        ioctl_readwrite!(
+            vc4_get_hang_state,
+            drm_sys::DRM_IOCTL_BASE,
+            drm_sys::DRM_COMMAND_BASE + 0x6,
+            drm_vc4_get_hang_state
+        );
+        ioctl_readwrite!(
+            vc4_get_param,
+            drm_sys::DRM_IOCTL_BASE,
+            drm_sys::DRM_COMMAND_BASE + 0x7,
+            drm_vc4_get_param
+        );
+        ioctl_readwrite!(
+            vc4_set_tiling,
+            drm_sys::DRM_IOCTL_BASE,
+            drm_sys::DRM_COMMAND_BASE + 0x8,
+            drm_vc4_set_tiling
+        );
+        ioctl_readwrite!(
+            vc4_get_tiling,
+            drm_sys::DRM_IOCTL_BASE,
+            drm_sys::DRM_COMMAND_BASE + 0x9,
+            drm_vc4_get_tiling
+        );
+        ioctl_readwrite!(
+            vc4_label_bo,
+            drm_sys::DRM_IOCTL_BASE,
+            drm_sys::DRM_COMMAND_BASE + 0xa,
+            drm_vc4_label_bo
+        );
+        ioctl_readwrite!(
+            vc4_gem_madvise,
+            drm_sys::DRM_IOCTL_BASE,
+            drm_sys::DRM_COMMAND_BASE + 0xb,
+            drm_vc4_gem_madvise
+        );
+        ioctl_readwrite!(
+            vc4_perfmon_create,
+            drm_sys::DRM_IOCTL_BASE,
+            drm_sys::DRM_COMMAND_BASE + 0xc,
+            drm_vc4_perfmon_create
+        );
+        ioctl_readwrite!(
+            vc4_perfmon_destroy,
+            drm_sys::DRM_IOCTL_BASE,
+            drm_sys::DRM_COMMAND_BASE + 0xd,
+            drm_vc4_perfmon_destroy
+        );
+        ioctl_readwrite!(
+            vc4_perfmon_get_values,
+            drm_sys::DRM_IOCTL_BASE,
+            drm_sys::DRM_COMMAND_BASE + 0xe,
+            drm_vc4_perfmon_get_values
+        );
     }
 
     use drm::buffer::Handle;
@@ -316,16 +396,9 @@ mod ffi {
         }
     }
 
-    pub fn vc4_wait_seqno(
-        fd: RawFd,
-        seqno: u64,
-        timeout_ns: u64,
-    ) -> Result<u64, SystemError> {
+    pub fn vc4_wait_seqno(fd: RawFd, seqno: u64, timeout_ns: u64) -> Result<u64, SystemError> {
         unsafe {
-            let mut args = drm_vc4_wait_seqno {
-                seqno,
-                timeout_ns,
-            };
+            let mut args = drm_vc4_wait_seqno { seqno, timeout_ns };
 
             ioctl::vc4_wait_seqno(fd, &mut args)?;
 
@@ -333,11 +406,7 @@ mod ffi {
         }
     }
 
-    pub fn vc4_wait_bo(
-        fd: RawFd,
-        handle: Handle,
-        timeout_ns: u64,
-    ) -> Result<u64, SystemError> {
+    pub fn vc4_wait_bo(fd: RawFd, handle: Handle, timeout_ns: u64) -> Result<u64, SystemError> {
         unsafe {
             let mut args = drm_vc4_wait_bo {
                 handle: handle.into(),
@@ -351,11 +420,7 @@ mod ffi {
         }
     }
 
-    pub fn vc4_create_bo(
-        fd: RawFd,
-        size: u32,
-        flags: u32,
-    ) -> Result<Handle, SystemError> {
+    pub fn vc4_create_bo(fd: RawFd, size: u32, flags: u32) -> Result<Handle, SystemError> {
         unsafe {
             let mut args = drm_vc4_create_bo {
                 size,
@@ -370,11 +435,7 @@ mod ffi {
         }
     }
 
-    pub fn vc4_mmap_bo(
-        fd: RawFd,
-        handle: Handle,
-        flags: u32,
-    ) -> Result<u64, SystemError> {
+    pub fn vc4_mmap_bo(fd: RawFd, handle: Handle, flags: u32) -> Result<u64, SystemError> {
         unsafe {
             let mut args = drm_vc4_mmap_bo {
                 handle: handle.into(),
@@ -421,7 +482,8 @@ mod ffi {
                 // There's a chance the bo_count will grow for the next ioctl.
                 // Loop until we have a result that fits.
                 loop {
-                    let mut bo = Vec::<drm_vc4_get_hang_state_bo>::with_capacity(args.bo_count as usize);
+                    let mut bo =
+                        Vec::<drm_vc4_get_hang_state_bo>::with_capacity(args.bo_count as usize);
                     bo.resize(bo.capacity(), drm_vc4_get_hang_state_bo::default());
                     args.bo = transmute(bo.as_ptr());
 
@@ -468,10 +530,7 @@ mod ffi {
         }
     }
 
-    pub fn vc4_get_param(
-        fd: RawFd,
-        param: u32,
-    ) -> Result<u64, SystemError> {
+    pub fn vc4_get_param(fd: RawFd, param: u32) -> Result<u64, SystemError> {
         unsafe {
             let mut args = drm_vc4_get_param {
                 param,
@@ -523,13 +582,10 @@ mod ffi {
         }
     }
 
-    pub fn vc4_label_bo(
-        fd: RawFd,
-        handle: Handle,
-        name: &str,
-    ) -> Result<(), SystemError> {
+    pub fn vc4_label_bo(fd: RawFd, handle: Handle, name: &str) -> Result<(), SystemError> {
         unsafe {
-            let name_c_str = std::ffi::CString::new(name).map_err(|_| SystemError::InvalidArgument)?;
+            let name_c_str =
+                std::ffi::CString::new(name).map_err(|_| SystemError::InvalidArgument)?;
 
             let mut args = drm_vc4_label_bo {
                 handle: handle.into(),
@@ -543,11 +599,7 @@ mod ffi {
         }
     }
 
-    pub fn vc4_gem_madvise(
-        fd: RawFd,
-        handle: Handle,
-        madv: u32,
-    ) -> Result<u32, SystemError> {
+    pub fn vc4_gem_madvise(fd: RawFd, handle: Handle, madv: u32) -> Result<u32, SystemError> {
         unsafe {
             let mut args = drm_vc4_gem_madvise {
                 handle: handle.into(),
@@ -562,10 +614,7 @@ mod ffi {
         }
     }
 
-    pub fn vc4_perfmon_create(
-        fd: RawFd,
-        events: &[u8],
-    ) -> Result<u32, SystemError> {
+    pub fn vc4_perfmon_create(fd: RawFd, events: &[u8]) -> Result<u32, SystemError> {
         if events.len() <= DRM_VC4_MAX_PERF_COUNTERS {
             unsafe {
                 let mut events_arr = [0; DRM_VC4_MAX_PERF_COUNTERS];
@@ -586,14 +635,9 @@ mod ffi {
         }
     }
 
-    pub fn vc4_perfmon_destroy(
-        fd: RawFd,
-        id: u32,
-    ) -> Result<(), SystemError> {
+    pub fn vc4_perfmon_destroy(fd: RawFd, id: u32) -> Result<(), SystemError> {
         unsafe {
-            let mut args = drm_vc4_perfmon_destroy {
-                id
-            };
+            let mut args = drm_vc4_perfmon_destroy { id };
 
             ioctl::vc4_perfmon_destroy(fd, &mut args)?;
 
@@ -620,12 +664,12 @@ mod ffi {
     }
 }
 
+use drm::{buffer::Handle, control::Device as ControlDevice, Device};
 pub use drm_ffi::result::SystemError;
-pub use ffi::drm_vc4_submit_rcl_surface;
 pub use ffi::drm_vc4_get_hang_state_reply;
+pub use ffi::drm_vc4_submit_rcl_surface;
 pub use ffi::DRM_VC4_MAX_PERF_COUNTERS;
 use std::os::fd::{AsFd, AsRawFd};
-use drm::{Device, buffer::Handle, control::Device as ControlDevice};
 
 #[derive(Debug)]
 /// A simple wrapper for a device node.
@@ -650,8 +694,12 @@ pub struct Buffer {
 }
 
 impl Buffer {
-    pub fn handle(&self) -> Handle { self.handle }
-    pub fn size(&self) -> u32 { self.size }
+    pub fn handle(&self) -> Handle {
+        self.handle
+    }
+    pub fn size(&self) -> u32 {
+        self.size
+    }
 }
 
 impl From<Buffer> for Handle {
@@ -670,7 +718,9 @@ pub struct ImageBuffer {
 }
 
 impl ImageBuffer {
-    pub fn buffer(&self) -> Buffer { self.buffer }
+    pub fn buffer(&self) -> Buffer {
+        self.buffer
+    }
 }
 
 impl drm::buffer::Buffer for ImageBuffer {
@@ -707,7 +757,6 @@ impl<'a> Drop for BufferMapping<'a> {
         }
     }
 }
-
 
 /// Simple helper methods for opening a `Card`.
 impl Card {
@@ -751,52 +800,42 @@ impl Card {
         rcl_order_increasing_x: bool,
         rcl_order_increasing_y: bool,
     ) -> Result<u64, SystemError> {
-        let flags =
-            if use_clear_color { 1 << 0 } else { 0 } |
-                if fixed_rcl_order { 1 << 1 } else { 0 } |
-                if rcl_order_increasing_x { 1 << 2 } else { 0 } |
-                if rcl_order_increasing_y { 1 << 3 } else { 0 };
-        ffi::vc4_submit_cl(self.as_fd().as_raw_fd(),
-                           bin_cl,
-                           shader_rec,
-                           uniforms,
-                           bo_handles,
-                           shader_rec_count,
-                           width,
-                           height,
-                           min_x_tile,
-                           min_y_tile,
-                           max_x_tile,
-                           max_y_tile,
-                           color_read,
-                           color_write,
-                           zs_read,
-                           zs_write,
-                           msaa_color_write,
-                           msaa_zs_write,
-                           clear_color,
-                           clear_z,
-                           clear_s,
-                           flags)
+        let flags = if use_clear_color { 1 << 0 } else { 0 }
+            | if fixed_rcl_order { 1 << 1 } else { 0 }
+            | if rcl_order_increasing_x { 1 << 2 } else { 0 }
+            | if rcl_order_increasing_y { 1 << 3 } else { 0 };
+        ffi::vc4_submit_cl(
+            self.as_fd().as_raw_fd(),
+            bin_cl,
+            shader_rec,
+            uniforms,
+            bo_handles,
+            shader_rec_count,
+            width,
+            height,
+            min_x_tile,
+            min_y_tile,
+            max_x_tile,
+            max_y_tile,
+            color_read,
+            color_write,
+            zs_read,
+            zs_write,
+            msaa_color_write,
+            msaa_zs_write,
+            clear_color,
+            clear_z,
+            clear_s,
+            flags,
+        )
     }
 
-    pub fn vc4_wait_seqno(
-        &self,
-        seqno: u64,
-        timeout_ns: u64,
-    ) -> Result<u64, SystemError> {
-        ffi::vc4_wait_seqno(self.as_fd().as_raw_fd(),
-                            seqno,
-                            timeout_ns)
+    pub fn vc4_wait_seqno(&self, seqno: u64, timeout_ns: u64) -> Result<u64, SystemError> {
+        ffi::vc4_wait_seqno(self.as_fd().as_raw_fd(), seqno, timeout_ns)
     }
 
-    pub fn vc4_create_bo(
-        &self,
-        size: u32,
-    ) -> Result<Buffer, SystemError> {
-        let handle = ffi::vc4_create_bo(self.as_fd().as_raw_fd(),
-                                        size,
-                                        0)?;
+    pub fn vc4_create_bo(&self, size: u32) -> Result<Buffer, SystemError> {
+        let handle = ffi::vc4_create_bo(self.as_fd().as_raw_fd(), size, 0)?;
         Ok(Buffer { handle, size })
     }
 
@@ -804,20 +843,16 @@ impl Card {
         self.close_buffer(buffer.handle)
     }
 
-    pub fn vc4_mmap_bo(
-        &self,
-        buffer: &Buffer,
-    ) -> Result<BufferMapping, SystemError> {
-        let offset = ffi::vc4_mmap_bo(self.as_fd().as_raw_fd(),
-                                      buffer.handle,
-                                      0)?;
+    pub fn vc4_mmap_bo(&self, buffer: &Buffer) -> Result<BufferMapping, SystemError> {
+        let offset = ffi::vc4_mmap_bo(self.as_fd().as_raw_fd(), buffer.handle, 0)?;
 
         let map = {
             use nix::sys::mman;
             use std::num::NonZeroUsize;
             let prot = mman::ProtFlags::PROT_READ | mman::ProtFlags::PROT_WRITE;
             let flags = mman::MapFlags::MAP_SHARED;
-            let length = NonZeroUsize::new(buffer.size as usize).ok_or(SystemError::InvalidArgument)?;
+            let length =
+                NonZeroUsize::new(buffer.size as usize).ok_or(SystemError::InvalidArgument)?;
             let fd = self.as_fd().as_raw_fd();
             let offset = offset as _;
             unsafe { mman::mmap(None, length, prot, flags, fd, offset)? }
@@ -839,98 +874,72 @@ impl Card {
     ) -> Result<ImageBuffer, SystemError> {
         let size_in_bytes = size.0 * size.1 * 4;
         let buffer = self.vc4_create_bo(size_in_bytes)?;
-        self.vc4_set_tiling(buffer.handle, true).expect("unable to enable tiling");
-        Ok(ImageBuffer { size, format: DrmFourcc::Bgra8888, pitch: size.0 * 4, buffer })
+        self.vc4_set_tiling(buffer.handle, true)
+            .expect("unable to enable tiling");
+        Ok(ImageBuffer {
+            size,
+            format: DrmFourcc::Bgra8888,
+            pitch: size.0 * 4,
+            buffer,
+        })
     }
 
-    pub fn vc4_create_shader_bo(
-        &self,
-        data: &[u64],
-    ) -> Result<Handle, SystemError> {
-        ffi::vc4_create_shader_bo(self.as_fd().as_raw_fd(),
-                                  0,
-                                  data)
+    pub fn vc4_create_shader_bo(&self, data: &[u64]) -> Result<Handle, SystemError> {
+        ffi::vc4_create_shader_bo(self.as_fd().as_raw_fd(), 0, data)
     }
 
-    pub fn vc4_get_hang_state(
-        &self,
-    ) -> Result<Option<drm_vc4_get_hang_state_reply>, SystemError> {
+    pub fn vc4_get_hang_state(&self) -> Result<Option<drm_vc4_get_hang_state_reply>, SystemError> {
         ffi::vc4_get_hang_state(self.as_fd().as_raw_fd())
     }
 
-    pub fn vc4_get_param(
-        &self,
-        param: u32,
-    ) -> Result<u64, SystemError> {
-        ffi::vc4_get_param(self.as_fd().as_raw_fd(),
-                           param)
+    pub fn vc4_get_param(&self, param: u32) -> Result<u64, SystemError> {
+        ffi::vc4_get_param(self.as_fd().as_raw_fd(), param)
     }
 
-    pub fn vc4_get_tiling(
-        &self,
-        handle: Handle,
-    ) -> Result<bool, SystemError> {
+    pub fn vc4_get_tiling(&self, handle: Handle) -> Result<bool, SystemError> {
         use drm_fourcc::DrmModifier;
-        let modifier = ffi::vc4_get_tiling(self.as_fd().as_raw_fd(),
-                                           handle,
-                                           0,
-                                           0)?;
-        Ok(if modifier == DrmModifier::Broadcom_vc4_t_tiled.into() { true } else { false })
+        let modifier = ffi::vc4_get_tiling(self.as_fd().as_raw_fd(), handle, 0, 0)?;
+        Ok(if modifier == DrmModifier::Broadcom_vc4_t_tiled.into() {
+            true
+        } else {
+            false
+        })
     }
 
-    pub fn vc4_set_tiling(
-        &self,
-        handle: Handle,
-        tiling: bool,
-    ) -> Result<(), SystemError> {
+    pub fn vc4_set_tiling(&self, handle: Handle, tiling: bool) -> Result<(), SystemError> {
         use drm_fourcc::DrmModifier;
-        ffi::vc4_set_tiling(self.as_fd().as_raw_fd(),
-                            handle,
-                            0,
-                            if tiling { DrmModifier::Broadcom_vc4_t_tiled.into() } else { 0 })
+        ffi::vc4_set_tiling(
+            self.as_fd().as_raw_fd(),
+            handle,
+            0,
+            if tiling {
+                DrmModifier::Broadcom_vc4_t_tiled.into()
+            } else {
+                0
+            },
+        )
     }
 
-    pub fn vc4_label_bo(
-        &self,
-        handle: Handle,
-        name: &str,
-    ) -> Result<(), SystemError> {
-        ffi::vc4_label_bo(self.as_fd().as_raw_fd(),
-                          handle,
-                          name)
+    pub fn vc4_label_bo(&self, handle: Handle, name: &str) -> Result<(), SystemError> {
+        ffi::vc4_label_bo(self.as_fd().as_raw_fd(), handle, name)
     }
 
-    pub fn vc4_gem_madvise(
-        &self,
-        handle: Handle,
-        madv: u32,
-    ) -> Result<u32, SystemError> {
-        ffi::vc4_gem_madvise(self.as_fd().as_raw_fd(),
-                             handle,
-                             madv)
+    pub fn vc4_gem_madvise(&self, handle: Handle, madv: u32) -> Result<u32, SystemError> {
+        ffi::vc4_gem_madvise(self.as_fd().as_raw_fd(), handle, madv)
     }
 
-    pub fn vc4_perfmon_create(
-        &self,
-        events: &[u8],
-    ) -> Result<u32, SystemError> {
-        ffi::vc4_perfmon_create(self.as_fd().as_raw_fd(),
-                                events)
+    pub fn vc4_perfmon_create(&self, events: &[u8]) -> Result<u32, SystemError> {
+        ffi::vc4_perfmon_create(self.as_fd().as_raw_fd(), events)
     }
 
-    pub fn vc4_perfmon_destroy(
-        &self,
-        id: u32,
-    ) -> Result<(), SystemError> {
-        ffi::vc4_perfmon_destroy(self.as_fd().as_raw_fd(),
-                                 id)
+    pub fn vc4_perfmon_destroy(&self, id: u32) -> Result<(), SystemError> {
+        ffi::vc4_perfmon_destroy(self.as_fd().as_raw_fd(), id)
     }
 
     pub fn vc4_perfmon_get_values(
         &self,
         id: u32,
     ) -> Result<[u64; DRM_VC4_MAX_PERF_COUNTERS], SystemError> {
-        ffi::vc4_perfmon_get_values(self.as_fd().as_raw_fd(),
-                                    id)
+        ffi::vc4_perfmon_get_values(self.as_fd().as_raw_fd(), id)
     }
 }
