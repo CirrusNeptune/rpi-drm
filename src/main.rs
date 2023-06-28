@@ -2,6 +2,7 @@
 
 mod vc4_card;
 mod vc4_cl;
+pub mod vc4_image;
 mod qpu;
 
 use std::io::Write;
@@ -161,6 +162,33 @@ fn main() {
     const FS_ASM: [u64; 6] = qpu! {
         sig_none ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
         sig_load_imm ; r0 = load32.always(0xffa14ccc) ; nop = load32() ;
+        sig_none ; tlb_color_all = or.always(r0, r0) ; nop = nop(r0, r0) ;
+        sig_end ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
+        sig_none ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
+        sig_unlock_score ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
+    };
+
+    const FS_ASM_TEX: [u64; 19] = qpu! {
+        sig_none ; r0 = itof.always(b, b, x_pix, y_pix) ; nop = nop(r0, r0) ;
+        sig_load_imm ; r2 = load32.always(0x3a72b9d6) ; nop = load32() ; //1/1080
+        sig_none ; r0 = itof.always(a, a, x_pix, y_pix) ; r1 = fmul.always(r2, r0) ; //r1 contains tex coord y
+        sig_load_imm ; r2 = load32.always(0x3a088888) ; nop = load32() ; //1/1920
+        //write texture addresses (x, y)
+        //writing tmu0_s signals that all coordinates are written
+        sig_none ; tmu0_t = or.always(r1, r1) ; r0 = fmul.always(r2, r0) ; //r0 contains tex coord x
+        sig_none ; tmu0_s = or.always(r0, r0) ; nop = nop(r0, r0) ;
+        //suspend thread (after 2 nops) to wait for TMU request to finish
+        sig_thread_switch ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
+        sig_none ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
+        sig_none ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
+        //read TMU0 request result to R4
+        sig_load_tmu0 ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
+        //when thread has been awakened, MOV from R4 to R0
+        sig_none ; r0 = fmax.pm.always._8a(r4, r4) ; nop = nop(r0, r0) ;
+        sig_none ; r1 = fmax.pm.always._8b(r4, r4) ; r0._8a = v8min.always(r0, r0) ;
+        sig_none ; r2 = fmax.pm.always._8c(r4, r4) ; r0._8b = v8min.always(r1, r1) ;
+        sig_none ; r3 = fmax.pm.always._8d(r4, r4) ; r0._8c = v8min.always(r2, r2) ;
+        sig_none ; nop = nop.pm(r0, r0) ; r0._8d = v8min.always(r3, r3) ;
         sig_none ; tlb_color_all = or.always(r0, r0) ; nop = nop(r0, r0) ;
         sig_end ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
         sig_none ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;

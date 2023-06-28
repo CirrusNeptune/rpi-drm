@@ -1,13 +1,14 @@
 [package]
 name = "rpi-drm" # the name of the package
 version = "0.1.0"    # the current version, obeying semver
-authors = ["Jack Andersen <jackoalan@gmail.com>"]
+authors = ["Cirrus <cirrus.neptune@protonmail.com>"]
 edition = "2021"
 
 [dependencies]
 drm = "0.9.0"
 num = "0.4.0"
 glam = "0.24.0"
+enum_dispatch = "0.3.11"
 
 [dependencies.libc]
 version = "^0.2.29"
