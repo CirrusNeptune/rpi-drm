@@ -28,8 +28,8 @@ impl UVec2PowerOfTwoFactor {
         (mul << self.shift.x) | add
     }
 
-    pub fn round_up_div_x(&self, val: u32) -> u32 {
-        (val + self.mask.x - 1) >> self.shift.x
+    pub fn round_up_div(&self, val: UVec2) -> UVec2 {
+        (val + self.mask - 1) >> self.shift
     }
 }
 
@@ -257,8 +257,8 @@ pub enum Translator {
 }
 
 impl Translator {
-    pub fn new(image_size: UVec2, bpp: u32) -> Self {
-        let (utile_size, bpp_shift) = match bpp {
+    const fn utile_size_and_bpp_shift(bpp: u32) -> (UVec2PowerOfTwoFactor, u32) {
+        match bpp {
             64 => (
                 UVec2PowerOfTwoFactor {
                     shift: UVec2::new(1, 2),
@@ -304,18 +304,22 @@ impl Translator {
             _ => {
                 panic!("Unexpected bpp");
             }
-        };
+        }
+    }
+
+    pub fn new_with_alloc_size(image_size: UVec2, bpp: u32) -> (Self, u32) {
+        let (utile_size, bpp_shift) = Self::utile_size_and_bpp_shift(bpp);
 
         if image_size.x < (4 << utile_size.shift.x) || image_size.y < (4 << utile_size.shift.y) {
-            let size_in_utile_x = utile_size.round_up_div_x(image_size.x);
-            if size_in_utile_x.is_power_of_two() {
+            let size_in_utile = utile_size.round_up_div(image_size);
+            let translator = if size_in_utile.x.is_power_of_two() {
                 LTTranslator {
                     #[cfg(debug_assertions)]
                     image_size,
                     utile_size,
                     size_in_utile_x: U32PowerOfTwoFactor {
-                        shift: size_in_utile_x.trailing_zeros(),
-                        mask: size_in_utile_x - 1,
+                        shift: size_in_utile.x.trailing_zeros(),
+                        mask: size_in_utile.x - 1,
                     },
                     bpp_shift,
                 }
@@ -325,23 +329,24 @@ impl Translator {
                     #[cfg(debug_assertions)]
                     image_size,
                     utile_size,
-                    size_in_utile_x: U32NonPowerOfTwoFactor(size_in_utile_x),
+                    size_in_utile_x: U32NonPowerOfTwoFactor(size_in_utile.x),
                     bpp_shift,
                 }
                 .into()
-            }
+            };
+            (translator, size_in_utile.x * size_in_utile.y * 64)
         } else {
-            let size_in_utile_x = utile_size.round_up_div_x(image_size.x);
-            let size_in_subtile_x = SPLAT_4.round_up_div_x(size_in_utile_x);
-            let size_in_tile_x = SPLAT_2.round_up_div_x(size_in_subtile_x);
-            if size_in_tile_x.is_power_of_two() {
+            let size_in_utile = utile_size.round_up_div(image_size);
+            let size_in_subtile = SPLAT_4.round_up_div(size_in_utile);
+            let size_in_tile = SPLAT_2.round_up_div(size_in_subtile);
+            let translator = if size_in_tile.x.is_power_of_two() {
                 TTranslator {
                     #[cfg(debug_assertions)]
                     image_size,
                     utile_size,
                     size_in_tile_x: U32PowerOfTwoFactor {
-                        shift: size_in_tile_x.trailing_zeros(),
-                        mask: size_in_tile_x - 1,
+                        shift: size_in_tile.x.trailing_zeros(),
+                        mask: size_in_tile.x - 1,
                     },
                     bpp_shift,
                 }
@@ -351,11 +356,20 @@ impl Translator {
                     #[cfg(debug_assertions)]
                     image_size,
                     utile_size,
-                    size_in_tile_x: U32NonPowerOfTwoFactor(size_in_tile_x),
+                    size_in_tile_x: U32NonPowerOfTwoFactor(size_in_tile.x),
                     bpp_shift,
                 }
                 .into()
-            }
+            };
+            (translator, size_in_tile.x * size_in_tile.y * 4096)
         }
+    }
+
+    pub fn new(image_size: UVec2, bpp: u32) -> Self {
+        Self::new_with_alloc_size(image_size, bpp).0
+    }
+
+    pub fn alloc_size(image_size: UVec2, bpp: u32) -> u32 {
+        Self::new_with_alloc_size(image_size, bpp).1
     }
 }

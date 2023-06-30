@@ -328,8 +328,21 @@ mod ffi {
             drm_sys::DRM_COMMAND_BASE + 0xe,
             drm_vc4_perfmon_get_values
         );
+
+        pub mod syncobj {
+            use drm_sys::*;
+            use nix::ioctl_readwrite;
+            ioctl_readwrite!(create, DRM_IOCTL_BASE, 0xBF, drm_syncobj_create);
+            ioctl_readwrite!(destroy, DRM_IOCTL_BASE, 0xC0, drm_syncobj_destroy);
+            ioctl_readwrite!(handle_to_fd, DRM_IOCTL_BASE, 0xC1, drm_syncobj_handle);
+            ioctl_readwrite!(fd_to_handle, DRM_IOCTL_BASE, 0xC2, drm_syncobj_handle);
+            ioctl_readwrite!(wait, DRM_IOCTL_BASE, 0xC3, drm_syncobj_wait);
+            ioctl_readwrite!(reset, DRM_IOCTL_BASE, 0xC4, drm_syncobj_array);
+            ioctl_readwrite!(signal, DRM_IOCTL_BASE, 0xC5, drm_syncobj_array);
+        }
     }
 
+    use crate::vc4_card::ffi::syncobj::SyncObjHandle;
     use drm::buffer::Handle;
 
     pub fn vc4_submit_cl(
@@ -355,6 +368,8 @@ mod ffi {
         clear_z: u32,
         clear_s: u8,
         flags: u32,
+        in_sync: Option<SyncObjHandle>,
+        out_sync: Option<SyncObjHandle>,
     ) -> Result<u64, SystemError> {
         unsafe {
             let mut args = drm_vc4_submit_cl {
@@ -385,8 +400,16 @@ mod ffi {
                 flags,
                 seqno: 0,
                 perfmonid: 0,
-                in_sync: 0,
-                out_sync: 0,
+                in_sync: if let Some(handle) = in_sync {
+                    handle.into()
+                } else {
+                    0
+                },
+                out_sync: if let Some(handle) = out_sync {
+                    handle.into()
+                } else {
+                    0
+                },
                 pad2: 0,
             };
 
@@ -482,9 +505,7 @@ mod ffi {
                 // There's a chance the bo_count will grow for the next ioctl.
                 // Loop until we have a result that fits.
                 loop {
-                    let mut bo =
-                        Vec::<drm_vc4_get_hang_state_bo>::with_capacity(args.bo_count as usize);
-                    bo.resize(bo.capacity(), drm_vc4_get_hang_state_bo::default());
+                    let mut bo = vec![drm_vc4_get_hang_state_bo::default(); args.bo_count as usize];
                     args.bo = transmute(bo.as_ptr());
 
                     // Detect unexpected growth while running the ioctl.
@@ -662,14 +683,214 @@ mod ffi {
             Ok(values_arr)
         }
     }
+
+    pub(crate) mod syncobj {
+        #![allow(dead_code)]
+        use super::*;
+        use drm::*;
+        use drm_sys::*;
+        use std::os::fd::{AsFd, AsRawFd};
+
+        #[repr(transparent)]
+        #[derive(Copy, Clone, Hash, PartialEq, Eq)]
+        pub struct SyncObjHandle(control::RawResourceHandle);
+
+        impl From<SyncObjHandle> for control::RawResourceHandle {
+            fn from(handle: SyncObjHandle) -> Self {
+                handle.0
+            }
+        }
+
+        impl From<SyncObjHandle> for u32 {
+            fn from(handle: SyncObjHandle) -> Self {
+                handle.0.into()
+            }
+        }
+
+        impl From<control::RawResourceHandle> for SyncObjHandle {
+            fn from(handle: control::RawResourceHandle) -> Self {
+                SyncObjHandle(handle)
+            }
+        }
+
+        impl std::fmt::Debug for SyncObjHandle {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.debug_tuple("syncobj::SyncObjHandle")
+                    .field(&self.0)
+                    .finish()
+            }
+        }
+
+        #[derive(Debug)]
+        /// A simple wrapper for a syncobj node.
+        pub struct SyncObj(std::fs::File);
+
+        /// Implementing `AsFd` is a prerequisite to implementing the traits found
+        /// in this crate. Here, we are just calling `as_fd()` on the inner File.
+        impl AsFd for SyncObj {
+            fn as_fd(&self) -> std::os::unix::io::BorrowedFd<'_> {
+                self.0.as_fd()
+            }
+        }
+
+        impl AsRawFd for SyncObj {
+            fn as_raw_fd(&self) -> RawFd {
+                self.as_fd().as_raw_fd()
+            }
+        }
+
+        pub fn create(fd: RawFd, signaled: bool) -> Result<SyncObjHandle, SystemError> {
+            unsafe {
+                let mut args = drm_syncobj_create {
+                    handle: 0,
+                    flags: if signaled {
+                        DRM_SYNCOBJ_CREATE_SIGNALED
+                    } else {
+                        0
+                    },
+                };
+
+                ioctl::syncobj::create(fd, &mut args)?;
+
+                Ok(core::num::NonZeroU32::new_unchecked(args.handle).into())
+            }
+        }
+
+        pub fn destroy(fd: RawFd, handle: SyncObjHandle) -> Result<(), SystemError> {
+            unsafe {
+                let mut args = drm_syncobj_destroy {
+                    handle: handle.into(),
+                    pad: 0,
+                };
+
+                ioctl::syncobj::destroy(fd, &mut args)?;
+
+                Ok(())
+            }
+        }
+
+        pub fn handle_to_fd(
+            fd: RawFd,
+            handle: SyncObjHandle,
+            export_sync_file: bool,
+        ) -> Result<SyncObj, SystemError> {
+            unsafe {
+                let mut args = drm_syncobj_handle {
+                    handle: handle.into(),
+                    flags: if export_sync_file {
+                        DRM_SYNCOBJ_HANDLE_TO_FD_FLAGS_EXPORT_SYNC_FILE
+                    } else {
+                        0
+                    },
+                    fd: 0,
+                    pad: 0,
+                };
+
+                ioctl::syncobj::handle_to_fd(fd, &mut args)?;
+
+                use std::os::fd::FromRawFd;
+                Ok(SyncObj(std::fs::File::from_raw_fd(args.fd)))
+            }
+        }
+
+        pub fn fd_to_handle(
+            fd: RawFd,
+            syncobj: &SyncObj,
+            import_sync_file: bool,
+        ) -> Result<SyncObjHandle, SystemError> {
+            unsafe {
+                let mut args = drm_syncobj_handle {
+                    handle: 0,
+                    flags: if import_sync_file {
+                        DRM_SYNCOBJ_FD_TO_HANDLE_FLAGS_IMPORT_SYNC_FILE
+                    } else {
+                        0
+                    },
+                    fd: syncobj.as_fd().as_raw_fd(),
+                    pad: 0,
+                };
+
+                ioctl::syncobj::fd_to_handle(fd, &mut args)?;
+
+                Ok(core::num::NonZeroU32::new_unchecked(args.handle).into())
+            }
+        }
+
+        pub fn wait(
+            fd: RawFd,
+            handles: &[SyncObjHandle],
+            timeout_nsec: i64,
+            wait_all: bool,
+            wait_for_submit: bool,
+        ) -> Result<Option<SyncObjHandle>, SystemError> {
+            unsafe {
+                let mut args = drm_syncobj_wait {
+                    handles: transmute(handles.as_ptr()),
+                    timeout_nsec,
+                    count_handles: handles.len() as u32,
+                    flags: if wait_all {
+                        DRM_SYNCOBJ_WAIT_FLAGS_WAIT_ALL
+                    } else {
+                        0
+                    } | if wait_for_submit {
+                        DRM_SYNCOBJ_WAIT_FLAGS_WAIT_FOR_SUBMIT
+                    } else {
+                        0
+                    },
+                    first_signaled: 0,
+                    pad: 0,
+                };
+
+                ioctl::syncobj::wait(fd, &mut args)?;
+
+                Ok(if args.first_signaled != 0 {
+                    Some(core::num::NonZeroU32::new_unchecked(args.first_signaled).into())
+                } else {
+                    None
+                })
+            }
+        }
+
+        pub fn reset(fd: RawFd, handles: &[SyncObjHandle]) -> Result<(), SystemError> {
+            unsafe {
+                let mut args = drm_syncobj_array {
+                    handles: transmute(handles.as_ptr()),
+                    count_handles: handles.len() as u32,
+                    pad: 0,
+                };
+
+                ioctl::syncobj::reset(fd, &mut args)?;
+
+                Ok(())
+            }
+        }
+
+        pub fn signal(fd: RawFd, handles: &[SyncObjHandle]) -> Result<(), SystemError> {
+            unsafe {
+                let mut args = drm_syncobj_array {
+                    handles: transmute(handles.as_ptr()),
+                    count_handles: handles.len() as u32,
+                    pad: 0,
+                };
+
+                ioctl::syncobj::signal(fd, &mut args)?;
+
+                Ok(())
+            }
+        }
+    }
 }
 
 use drm::{buffer::Handle, control::Device as ControlDevice, Device};
 pub use drm_ffi::result::SystemError;
-pub use ffi::drm_vc4_get_hang_state_reply;
-pub use ffi::drm_vc4_submit_rcl_surface;
-pub use ffi::DRM_VC4_MAX_PERF_COUNTERS;
+use drm_fourcc::DrmFourcc;
+pub use ffi::{
+    drm_vc4_get_hang_state_reply, drm_vc4_submit_rcl_surface, syncobj::SyncObjHandle,
+    DRM_VC4_MAX_PERF_COUNTERS,
+};
+use std::future::Future;
 use std::os::fd::{AsFd, AsRawFd};
+use tokio::io::unix::AsyncFd;
 
 #[derive(Debug)]
 /// A simple wrapper for a device node.
@@ -707,8 +928,6 @@ impl From<Buffer> for Handle {
         value.handle
     }
 }
-
-use drm_fourcc::DrmFourcc;
 
 pub struct ImageBuffer {
     size: (u32, u32),
@@ -799,6 +1018,8 @@ impl Card {
         fixed_rcl_order: bool,
         rcl_order_increasing_x: bool,
         rcl_order_increasing_y: bool,
+        in_sync: Option<SyncObjHandle>,
+        out_sync: Option<SyncObjHandle>,
     ) -> Result<u64, SystemError> {
         let flags = if use_clear_color { 1 << 0 } else { 0 }
             | if fixed_rcl_order { 1 << 1 } else { 0 }
@@ -827,7 +1048,83 @@ impl Card {
             clear_z,
             clear_s,
             flags,
+            in_sync,
+            out_sync,
         )
+    }
+
+    pub fn vc4_submit_cl_async(
+        &self,
+        bin_cl: &[u8],
+        shader_rec: &[u8],
+        uniforms: &[u32],
+        bo_handles: &[Handle],
+        shader_rec_count: u32,
+        width: u16,
+        height: u16,
+        min_x_tile: u8,
+        min_y_tile: u8,
+        max_x_tile: u8,
+        max_y_tile: u8,
+        color_read: drm_vc4_submit_rcl_surface,
+        color_write: drm_vc4_submit_rcl_surface,
+        zs_read: drm_vc4_submit_rcl_surface,
+        zs_write: drm_vc4_submit_rcl_surface,
+        msaa_color_write: drm_vc4_submit_rcl_surface,
+        msaa_zs_write: drm_vc4_submit_rcl_surface,
+        clear_color: [u32; 2],
+        clear_z: u32,
+        clear_s: u8,
+        use_clear_color: bool,
+        fixed_rcl_order: bool,
+        rcl_order_increasing_x: bool,
+        rcl_order_increasing_y: bool,
+    ) -> Result<impl Future, SystemError> {
+        let flags = if use_clear_color { 1 << 0 } else { 0 }
+            | if fixed_rcl_order { 1 << 1 } else { 0 }
+            | if rcl_order_increasing_x { 1 << 2 } else { 0 }
+            | if rcl_order_increasing_y { 1 << 3 } else { 0 };
+
+        let syncobj = {
+            let syncobj_handle = ffi::syncobj::create(self.as_fd().as_raw_fd(), false)?;
+
+            let syncobj = {
+                ffi::vc4_submit_cl(
+                    self.as_fd().as_raw_fd(),
+                    bin_cl,
+                    shader_rec,
+                    uniforms,
+                    bo_handles,
+                    shader_rec_count,
+                    width,
+                    height,
+                    min_x_tile,
+                    min_y_tile,
+                    max_x_tile,
+                    max_y_tile,
+                    color_read,
+                    color_write,
+                    zs_read,
+                    zs_write,
+                    msaa_color_write,
+                    msaa_zs_write,
+                    clear_color,
+                    clear_z,
+                    clear_s,
+                    flags,
+                    None,
+                    Some(syncobj_handle),
+                )?;
+
+                ffi::syncobj::handle_to_fd(self.as_fd().as_raw_fd(), syncobj_handle, true)
+            };
+
+            ffi::syncobj::destroy(self.as_fd().as_raw_fd(), syncobj_handle)?;
+            syncobj
+        }?;
+
+        let afd = AsyncFd::with_interest(syncobj, tokio::io::Interest::READABLE).unwrap();
+        Ok(async move { afd.readable().await.unwrap().retain_ready() })
     }
 
     pub fn vc4_wait_seqno(&self, seqno: u64, timeout_ns: u64) -> Result<u64, SystemError> {
@@ -872,7 +1169,8 @@ impl Card {
         &self,
         size: (u32, u32),
     ) -> Result<ImageBuffer, SystemError> {
-        let size_in_bytes = size.0 * size.1 * 4;
+        use crate::vc4_image::*;
+        let size_in_bytes = Translator::alloc_size(size.into(), 32);
         let buffer = self.vc4_create_bo(size_in_bytes)?;
         self.vc4_set_tiling(buffer.handle, true)
             .expect("unable to enable tiling");

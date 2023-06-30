@@ -27,3 +27,7 @@ version = "^2.2.0"
 version = "0.26.0"
 features = ["ioctl"]
 default-features = false
+
+[dependencies.tokio]
+version = "1.28.2"
+features = ["rt-multi-thread", "macros", "net"]

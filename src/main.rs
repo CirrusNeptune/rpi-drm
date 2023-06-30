@@ -11,7 +11,6 @@ use vc4_card::{drm_vc4_submit_rcl_surface, Buffer, Card};
 use vc4_cl::*;
 
 use std::io::Cursor;
-use std::time::Instant;
 
 struct DisplayFramebuffers {
     pub size: (u16, u16),
@@ -76,15 +75,7 @@ fn open_and_allocate_display_framebuffers(card: &Card) -> DisplayFramebuffers {
     panic!("Couldn't find a display");
 }
 
-fn main() {
-    use std::os::unix::process::CommandExt;
-    let current_exe = std::env::current_exe().unwrap();
-    if let Some(_) = std::env::args_os().find(|a| a == "--debugserver") {
-        std::process::Command::new("gdbserver")
-            .args([":1235", current_exe.to_str().unwrap()])
-            .exec();
-    }
-
+async fn async_main() {
     let card = Card::open_global();
 
     let display_framebuffers = open_and_allocate_display_framebuffers(&card);
@@ -232,26 +223,7 @@ fn main() {
         .vc4_create_shader_bo(&FS_ASM)
         .expect("unable to create fs");
 
-    let vbo = card.vc4_create_bo(24).unwrap();
-    {
-        let mut vbo_map = card.vc4_mmap_bo(&vbo).unwrap();
-        let mut cur = Cursor::new(vbo_map.as_mut());
-
-        let rot_mat = glam::Mat2::default();
-        let side_len = 3.0 / f32::sqrt(3.0) / 2.0;
-
-        let v0 = rot_mat.mul_vec2([-side_len, 0.5].into());
-        cur.write_all(&f32::from(v0.x).to_le_bytes()).unwrap();
-        cur.write_all(&f32::from(v0.y).to_le_bytes()).unwrap();
-
-        let v1 = rot_mat.mul_vec2([side_len, 0.5].into());
-        cur.write_all(&f32::from(v1.x).to_le_bytes()).unwrap();
-        cur.write_all(&f32::from(v1.y).to_le_bytes()).unwrap();
-
-        let v2 = rot_mat.mul_vec2([0.0, -1.0].into());
-        cur.write_all(&f32::from(v2.x).to_le_bytes()).unwrap();
-        cur.write_all(&f32::from(v2.y).to_le_bytes()).unwrap();
-    }
+    let vbo = card.vc4_create_bo(24 * 1000).unwrap();
 
     let uniforms = [
         // VS uniforms
@@ -280,11 +252,13 @@ fn main() {
     // which are what is used when a primitive is binned to a tile to
     // figure out what new state packets need to be written to that tile's
     // command list.
-    StartTileBinning::default()
+    StartTileBinning {}
         .encode(&mut bin_cl_buf)
         .expect("unable to write StartTileBinning");
 
-    LineWidth::default().encode(&mut bin_cl_buf).unwrap();
+    LineWidth { line_width: 0.0 }
+        .encode(&mut bin_cl_buf)
+        .unwrap();
 
     ClipWindow {
         clip_window_left_pixel_coordinate: 0,
@@ -406,7 +380,7 @@ fn main() {
 
     VertexArrayPrimitives {
         index_of_first_vertex: 0,
-        length: 3,
+        length: 3 * 1000,
         primitive_mode: PrimitiveMode::Triangles,
     }
     .encode(&mut bin_cl_buf)
@@ -417,10 +391,10 @@ fn main() {
     // until the FLUSH completes.
     // The FLUSH caps all of our bin lists with a
     // VC4_PACKET_RETURN.
-    IncrementSemaphore::default()
+    IncrementSemaphore {}
         .encode(&mut bin_cl_buf)
         .expect("unable to write IncrementSemaphore");
-    Flush::default()
+    Flush {}
         .encode(&mut bin_cl_buf)
         .expect("unable to write IncrementSemaphore");
 
@@ -438,61 +412,75 @@ fn main() {
     let mut i = 0;
     loop {
         {
-            let rot_mat = glam::Mat2::from_angle(i as f32 * 2.0 * std::f32::consts::PI / 2048.0);
             let mut vbo_map = card.vc4_mmap_bo(&vbo).unwrap();
             let mut cur = Cursor::new(vbo_map.as_mut());
 
             let side_len = 3.0 / f32::sqrt(3.0) / 2.0;
 
-            let v0 = rot_mat.mul_vec2([-side_len, 0.5].into());
-            cur.write_all(&f32::from(v0.x).to_le_bytes()).unwrap();
-            cur.write_all(&f32::from(v0.y).to_le_bytes()).unwrap();
+            for j in 0..1000 {
+                let rot_mat =
+                    glam::Mat2::from_angle(j as f32 * 2.0 * std::f32::consts::PI / 2048.0);
 
-            let v1 = rot_mat.mul_vec2([side_len, 0.5].into());
-            cur.write_all(&f32::from(v1.x).to_le_bytes()).unwrap();
-            cur.write_all(&f32::from(v1.y).to_le_bytes()).unwrap();
+                let v0 = rot_mat.mul_vec2([-side_len, 0.5].into());
+                cur.write_all(&f32::from(v0.x).to_le_bytes()).unwrap();
+                cur.write_all(&f32::from(v0.y).to_le_bytes()).unwrap();
 
-            let v2 = rot_mat.mul_vec2([0.0, -1.0].into());
-            cur.write_all(&f32::from(v2.x).to_le_bytes()).unwrap();
-            cur.write_all(&f32::from(v2.y).to_le_bytes()).unwrap();
+                let v1 = rot_mat.mul_vec2([side_len, 0.5].into());
+                cur.write_all(&f32::from(v1.x).to_le_bytes()).unwrap();
+                cur.write_all(&f32::from(v1.y).to_le_bytes()).unwrap();
+
+                let v2 = rot_mat.mul_vec2([0.0, -1.0].into());
+                cur.write_all(&f32::from(v2.x).to_le_bytes()).unwrap();
+                cur.write_all(&f32::from(v2.y).to_le_bytes()).unwrap();
+            }
         }
 
-        let start = Instant::now();
         let clear_color = 0xffffffff;
-        let seqno = card
-            .vc4_submit_cl(
-                &bin_cl_buf,
-                &shader_rec_buf,
-                &uniforms,
-                &bo_handles,
-                shader_rec_count,
-                display_framebuffers.size.0,
-                display_framebuffers.size.1,
-                0,
-                0,
-                tile_bin_config.width_in_tiles - 1,
-                tile_bin_config.height_in_tiles - 1,
-                drm_vc4_submit_rcl_surface::default(),
-                color_write,
-                drm_vc4_submit_rcl_surface::default(),
-                drm_vc4_submit_rcl_surface::default(),
-                drm_vc4_submit_rcl_surface::default(),
-                drm_vc4_submit_rcl_surface::default(),
-                [clear_color, clear_color],
-                0,
-                0,
-                true,
-                false,
-                false,
-                false,
-            )
-            .expect("Unable to vc4_submit_cl");
-        card.vc4_wait_seqno(seqno, u64::MAX)
-            .expect("Unable to vc4_wait_seqno");
-        //println!("{}ms", (Instant::now() - start).as_millis());
+        card.vc4_submit_cl_async(
+            &bin_cl_buf,
+            &shader_rec_buf,
+            &uniforms,
+            &bo_handles,
+            shader_rec_count,
+            display_framebuffers.size.0,
+            display_framebuffers.size.1,
+            0,
+            0,
+            tile_bin_config.width_in_tiles - 1,
+            tile_bin_config.height_in_tiles - 1,
+            drm_vc4_submit_rcl_surface::default(),
+            color_write,
+            drm_vc4_submit_rcl_surface::default(),
+            drm_vc4_submit_rcl_surface::default(),
+            drm_vc4_submit_rcl_surface::default(),
+            drm_vc4_submit_rcl_surface::default(),
+            [clear_color, clear_color],
+            0,
+            0,
+            true,
+            false,
+            false,
+            false,
+        )
+        .expect("Unable to vc4_submit_cl")
+        .await;
 
         i += 1;
     }
+}
 
-    println!("Done");
+fn main() {
+    use std::os::unix::process::CommandExt;
+    let current_exe = std::env::current_exe().unwrap();
+    if let Some(_) = std::env::args_os().find(|a| a == "--debugserver") {
+        std::process::Command::new("gdbserver")
+            .args([":1235", current_exe.to_str().unwrap()])
+            .exec();
+    }
+
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async_main())
 }
