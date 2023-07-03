@@ -1,36 +1,48 @@
 #![recursion_limit = "10000"]
 
-mod qpu;
-mod vc4_card;
-mod vc4_cl;
-pub mod vc4_image;
-
-use drm::control::{connector::State, Device};
 use std::io::Write;
-use vc4_card::{drm_vc4_submit_rcl_surface, Buffer, Card};
-use vc4_cl::*;
+use vc4_drm::card::{drm_vc4_submit_rcl_surface, Card};
+use vc4_drm::cl::*;
+use vc4_drm::drm::control::{connector::State, Device, PageFlipFlags};
 
 use std::io::Cursor;
+use vc4_drm::glam::UVec2;
+
+struct Framebuffer {
+    pub bo: vc4_drm::drm::buffer::Handle,
+    pub framebuffer: vc4_drm::drm::control::framebuffer::Handle,
+}
 
 struct DisplayFramebuffers {
     pub size: (u16, u16),
-    pub bo: Buffer,
-    crtc: drm::control::crtc::Handle,
-    framebuffer: drm::control::framebuffer::Handle,
-    connector: drm::control::connector::Handle,
-    mode: drm::control::Mode,
+    crtc: vc4_drm::drm::control::crtc::Handle,
+    framebuffers: [Framebuffer; 2],
+    connector: vc4_drm::drm::control::connector::Handle,
+    mode: vc4_drm::drm::control::Mode,
 }
 
 impl DisplayFramebuffers {
-    pub fn set_crtc(&self, card: &Card) {
+    pub fn set_crtc(&self, card: &Card, index: usize) {
         card.set_crtc(
             self.crtc,
-            Some(self.framebuffer),
+            Some(self.framebuffers[index].framebuffer),
             (0, 0),
             &[self.connector],
             Some(self.mode),
         )
         .expect("unable to set_crtc");
+    }
+
+    pub async fn page_flip(&self, card: &Card, index: usize) {
+        card.page_flip(
+            self.crtc,
+            self.framebuffers[index].framebuffer,
+            PageFlipFlags::EVENT,
+            None,
+        )
+        .expect("unable to page_flip");
+
+        card.wait_for_flip().await;
     }
 }
 
@@ -57,17 +69,25 @@ fn open_and_allocate_display_framebuffers(card: &Card) -> DisplayFramebuffers {
             .get_encoder(current_encoder)
             .expect("unable to get encoder info");
         let crtc = encoder_info.crtc().expect("unable to get crtc");
-        let image_buffer = card
-            .vc4_create_bgra_image_buffer((mode.size().0 as u32, mode.size().1 as u32))
-            .expect("unable to create image buffer");
-        let framebuffer = card
-            .add_framebuffer(&image_buffer, 32, 32)
-            .expect("unable to add framebuffer");
+
+        let create_framebuffer = || {
+            let image_buffer = card
+                .vc4_create_bgra_image_buffer((mode.size().0 as u32, mode.size().1 as u32))
+                .expect("unable to create image buffer");
+            let framebuffer = card
+                .add_framebuffer(&image_buffer, 32, 32)
+                .expect("unable to add framebuffer");
+            use vc4_drm::drm::buffer::Buffer;
+            Framebuffer {
+                bo: image_buffer.handle(),
+                framebuffer,
+            }
+        };
+
         return DisplayFramebuffers {
             size: mode.size(),
-            bo: image_buffer.buffer(),
             crtc,
-            framebuffer,
+            framebuffers: [create_framebuffer(), create_framebuffer()],
             connector: *connector,
             mode,
         };
@@ -80,6 +100,7 @@ async fn async_main() {
 
     let display_framebuffers = open_and_allocate_display_framebuffers(&card);
 
+    use vc4_drm::qpu;
     const VS_ASM: [u64; 14] = qpu! {
         //0x40000000 = 2.0
         //uni = 1.0
@@ -177,6 +198,7 @@ async fn async_main() {
         sig_none ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
     };
 
+    /*
     const FS_ASM: [u64; 6] = qpu! {
         sig_none ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
         sig_load_imm ; r0 = load32.always(0xffa14ccc) ; nop = load32() ;
@@ -185,12 +207,12 @@ async fn async_main() {
         sig_none ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
         sig_unlock_score ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
     };
+     */
 
-    const FS_ASM_TEX: [u64; 19] = qpu! {
+    const FS_ASM_TEX: [u64; 18] = qpu! {
         sig_none ; r0 = itof.always(b, b, x_pix, y_pix) ; nop = nop(r0, r0) ;
-        sig_load_imm ; r2 = load32.always(0x3a72b9d6) ; nop = load32() ; //1/1080
+        sig_load_imm ; r2 = load32.always(qpu::transmute_f32(1.0 / 480.0)) ; nop = load32() ; //1/480
         sig_none ; r0 = itof.always(a, a, x_pix, y_pix) ; r1 = fmul.always(r2, r0) ; //r1 contains tex coord y
-        sig_load_imm ; r2 = load32.always(0x3a088888) ; nop = load32() ; //1/1920
         //write texture addresses (x, y)
         //writing tmu0_s signals that all coordinates are written
         sig_none ; tmu0_t = or.always(r1, r1) ; r0 = fmul.always(r2, r0) ; //r0 contains tex coord x
@@ -220,12 +242,55 @@ async fn async_main() {
         .vc4_create_shader_bo(&CS_ASM)
         .expect("unable to create cs");
     let fs = card
-        .vc4_create_shader_bo(&FS_ASM)
+        .vc4_create_shader_bo(&FS_ASM_TEX)
         .expect("unable to create fs");
+
+    let (tex_bo, tex_uniform) = {
+        use vc4_drm::image::*;
+        let image_size = UVec2::new(256, 256);
+        let (translator, size_in_bytes) = Translator::new_with_alloc_size(image_size, 32);
+        let buffer = card.vc4_create_bo(size_in_bytes).unwrap();
+        {
+            let mut mapping = card.vc4_mmap_bo(&buffer).unwrap();
+            for y in 0..image_size.y {
+                for x in 0..image_size.x {
+                    let offset = translator
+                        .coordinate_to_tile_address(UVec2::new(x, y))
+                        .offset as usize;
+                    mapping.as_mut()[offset] = 0;
+                    mapping.as_mut()[offset + 1] = y as u8;
+                    mapping.as_mut()[offset + 2] = x as u8;
+                    mapping.as_mut()[offset + 3] = 255;
+                }
+            }
+        }
+        card.vc4_set_tiling(buffer.handle(), true).unwrap();
+        let uniform = TextureConfigUniform {
+            base_address: 0,
+            cache_swizzle: 0,
+            cube_map: false,
+            flip_y: false,
+            data_type: TextureDataType::RGBA8888,
+            num_mips: 1,
+            height: image_size.y as u16,
+            etc_flip: false,
+            width: image_size.x as u16,
+            mag_filt: TextureMagFilterType::Linear,
+            min_filt: TextureMinFilterType::Linear,
+            wrap_t: TextureWrapType::Repeat,
+            wrap_s: TextureWrapType::Repeat,
+        };
+        (buffer, uniform)
+    };
 
     let vbo = card.vc4_create_bo(24 * 1000).unwrap();
 
     let uniforms = [
+        // FS relocs
+        5,
+        // FS uniforms
+        tex_uniform.get_1d_word(),
+        tex_uniform.get_2d_word(),
         // VS uniforms
         u32::from_le_bytes(1.0_f32.to_le_bytes()),
         u32::from_le_bytes(((display_framebuffers.size.0 * 16 / 2) as f32).to_le_bytes()),
@@ -347,7 +412,7 @@ async fn async_main() {
     shader_rec_buf.write_all(&4_u32.to_le_bytes()).unwrap();
 
     GlShaderRecord {
-        fragment_shader_is_single_threaded: true,
+        fragment_shader_is_single_threaded: false,
         point_size_included_in_shaded_vertex_data: false,
         enable_clipping: true,
         fragment_shader_number_of_uniforms_not_used_currently: 0,
@@ -380,7 +445,7 @@ async fn async_main() {
 
     VertexArrayPrimitives {
         index_of_first_vertex: 0,
-        length: 3 * 1000,
+        length: 3 * 1,
         primitive_mode: PrimitiveMode::Triangles,
     }
     .encode(&mut bin_cl_buf)
@@ -398,28 +463,38 @@ async fn async_main() {
         .encode(&mut bin_cl_buf)
         .expect("unable to write IncrementSemaphore");
 
-    let mut color_write = drm_vc4_submit_rcl_surface::default();
-    color_write.hindex = 0;
-    const VC4_RENDER_CONFIG_FORMAT_RGBA8888: u16 = 1;
-    const VC4_TILING_FORMAT_LINEAR: u16 = 0;
-    const VC4_TILING_FORMAT_T: u16 = 1;
-    const VC4_TILING_FORMAT_LT: u16 = 2;
-    color_write.bits = VC4_RENDER_CONFIG_FORMAT_RGBA8888 << 2 | VC4_TILING_FORMAT_T << 6;
+    let mut bo_handles = [
+        display_framebuffers.framebuffers[0].bo.into(),
+        fs,
+        vs,
+        cs,
+        vbo.handle(),
+        tex_bo.handle(),
+    ];
+    display_framebuffers.set_crtc(&card, 0);
 
-    let bo_handles = [display_framebuffers.bo.into(), fs, vs, cs, vbo.handle()];
-    display_framebuffers.set_crtc(&card);
+    let mut wait_usec: i64 = 0;
 
     let mut i = 0;
     loop {
+        let framebuffer = &display_framebuffers.framebuffers[i & 1];
+        bo_handles[0] = framebuffer.bo.into();
+
+        use vc4_drm::tokio::time::Duration;
+        if wait_usec > 0 {
+            //tokio::time::sleep(Duration::from_micros(wait_usec as u64)).await;
+        }
+
         {
             let mut vbo_map = card.vc4_mmap_bo(&vbo).unwrap();
             let mut cur = Cursor::new(vbo_map.as_mut());
 
             let side_len = 3.0 / f32::sqrt(3.0) / 2.0;
 
-            for j in 0..1000 {
-                let rot_mat =
-                    glam::Mat2::from_angle(j as f32 * 2.0 * std::f32::consts::PI / 2048.0);
+            for j in 0..1 {
+                let rot_mat = vc4_drm::glam::Mat2::from_angle(
+                    (i + j) as f32 * 2.0 * std::f32::consts::PI / 128.0,
+                );
 
                 let v0 = rot_mat.mul_vec2([-side_len, 0.5].into());
                 cur.write_all(&f32::from(v0.x).to_le_bytes()).unwrap();
@@ -436,6 +511,7 @@ async fn async_main() {
         }
 
         let clear_color = 0xffffffff;
+
         card.vc4_submit_cl_async(
             &bin_cl_buf,
             &shader_rec_buf,
@@ -449,7 +525,7 @@ async fn async_main() {
             tile_bin_config.width_in_tiles - 1,
             tile_bin_config.height_in_tiles - 1,
             drm_vc4_submit_rcl_surface::default(),
-            color_write,
+            drm_vc4_submit_rcl_surface::new_tiled_rgba8(0),
             drm_vc4_submit_rcl_surface::default(),
             drm_vc4_submit_rcl_surface::default(),
             drm_vc4_submit_rcl_surface::default(),
@@ -465,6 +541,19 @@ async fn async_main() {
         .expect("Unable to vc4_submit_cl")
         .await;
 
+        use vc4_drm::tokio::time::Instant;
+        let start = Instant::now();
+        display_framebuffers.page_flip(&card, i & 1).await;
+        let flip_wait = Instant::now() - start;
+        let delta = flip_wait.as_micros() as i64 - Duration::from_millis(2).as_micros() as i64;
+        let new_wait_usec = wait_usec + delta;
+        if new_wait_usec < 1000000 / 60 - 2000 {
+            wait_usec = new_wait_usec;
+        } else if new_wait_usec > 1000000 / 60 - 1000 {
+            wait_usec -= 1000;
+        }
+        //println!("{}us will wait {}us", flip_wait.as_micros(), wait_usec);
+
         i += 1;
     }
 }
@@ -478,7 +567,7 @@ fn main() {
             .exec();
     }
 
-    tokio::runtime::Builder::new_multi_thread()
+    vc4_drm::tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .unwrap()

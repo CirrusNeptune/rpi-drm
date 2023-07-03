@@ -97,13 +97,13 @@ impl U32Factor for U32NonPowerOfTwoFactor {
 pub struct TileAddress {
     pub offset: u32,
     pub bit: u8,
-    pub lt: bool,
 }
 
 #[enum_dispatch]
 pub trait TranslatorTrait {
     fn coordinate_to_tile_address(&self, coord: UVec2) -> TileAddress;
     fn tile_address_to_coordinate(&self, address: TileAddress) -> UVec2;
+    fn is_lt_format(&self) -> bool;
 }
 
 pub struct TTranslator<Fac: U32Factor> {
@@ -150,7 +150,6 @@ impl<Fac: U32Factor> TranslatorTrait for TTranslator<Fac> {
         TileAddress {
             offset: tile_index * 4096 + subtile_index * 1024 + utile_index * 64 + pixel_byte,
             bit: pixel_bit as u8,
-            lt: false,
         }
     }
 
@@ -200,6 +199,10 @@ impl<Fac: U32Factor> TranslatorTrait for TTranslator<Fac> {
 
         coord
     }
+
+    fn is_lt_format(&self) -> bool {
+        false
+    }
 }
 
 pub struct LTTranslator<Fac: U32Factor> {
@@ -227,7 +230,6 @@ impl<Fac: U32Factor> TranslatorTrait for LTTranslator<Fac> {
         TileAddress {
             offset: utile_index * 64 + pixel_byte,
             bit: pixel_bit as u8,
-            lt: true,
         }
     }
 
@@ -245,6 +247,10 @@ impl<Fac: U32Factor> TranslatorTrait for LTTranslator<Fac> {
         assert!(coord.x < self.image_size.x && coord.y < self.image_size.y);
 
         coord
+    }
+
+    fn is_lt_format(&self) -> bool {
+        true
     }
 }
 

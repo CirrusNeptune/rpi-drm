@@ -466,3 +466,94 @@ impl BinClStructure for AttributeRecord {
         writer.write_all(&buf)
     }
 }
+
+#[derive(Default, Debug, Copy, Clone)]
+#[repr(u8)]
+pub enum TextureDataType {
+    #[default]
+    RGBA8888 = 0,
+    RGBX8888 = 1,
+    RGBA4444 = 2,
+    RGBA5551 = 3,
+    RGB565 = 4,
+    Luminance = 5,
+    Alpha = 6,
+    LumAlpha = 7,
+    ETC1 = 8,
+    S16F = 9,
+    S8 = 10,
+    S16 = 11,
+    BW1 = 12,
+    A4 = 13,
+    A1 = 14,
+    RGBA64 = 15,
+    RGBA32R = 16,
+    YUYV422R = 17,
+}
+
+#[derive(Default, Debug, Copy, Clone)]
+#[repr(u8)]
+pub enum TextureMagFilterType {
+    #[default]
+    Linear = 0,
+    Nearest = 1,
+}
+
+#[derive(Default, Debug, Copy, Clone)]
+#[repr(u8)]
+pub enum TextureMinFilterType {
+    #[default]
+    Linear = 0,
+    Nearest = 1,
+    NearestMipNearest = 2,
+    NearestMipLinear = 3,
+    LinearMipNearest = 4,
+    LinearMipLinear = 5,
+}
+
+#[derive(Default, Debug, Copy, Clone)]
+#[repr(u8)]
+pub enum TextureWrapType {
+    #[default]
+    Repeat = 0,
+    Clamp = 1,
+    Mirror = 2,
+    Border = 3,
+}
+
+#[derive(Default, Debug)]
+pub struct TextureConfigUniform {
+    pub base_address: u32,
+    pub cache_swizzle: u8,
+    pub cube_map: bool,
+    pub flip_y: bool,
+    pub data_type: TextureDataType,
+    pub num_mips: u8,
+
+    pub height: u16,
+    pub etc_flip: bool,
+    pub width: u16,
+    pub mag_filt: TextureMagFilterType,
+    pub min_filt: TextureMinFilterType,
+    pub wrap_t: TextureWrapType,
+    pub wrap_s: TextureWrapType,
+}
+
+impl TextureConfigUniform {
+    pub fn get_1d_word(&self) -> u32 {
+        ((self.num_mips as u32 - 1) & 0xf)
+            | (((self.data_type as u32) & 0xf) << 4)
+            | ((self.cube_map as u32) << 9)
+            | ((self.base_address & 0xfffff) << 12)
+    }
+
+    pub fn get_2d_word(&self) -> u32 {
+        ((self.wrap_s as u32) & 0x3)
+            | (((self.wrap_t as u32) & 0x3) << 2)
+            | (((self.min_filt as u32) & 0x7) << 4)
+            | (((self.mag_filt as u32) & 0x1) << 7)
+            | (((self.width as u32) & 0x7ff) << 8)
+            | (((self.height as u32) & 0x7ff) << 20)
+            | ((((self.data_type as u32) & 0x10) >> 4) << 31)
+    }
+}

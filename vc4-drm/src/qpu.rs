@@ -1012,3 +1012,7 @@ pub const fn vpm_block_write_vertical_32(stride: u8, y: u8, x: u8) -> u32 {
         | ((y as u32) << 4)
         | (x as u32)
 }
+
+pub const fn transmute_f32(val: f32) -> u32 {
+    unsafe { std::mem::transmute(val) }
+}

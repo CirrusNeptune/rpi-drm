@@ -1,3 +1,23 @@
+#![allow(dead_code)]
+
+#[derive(Default, Debug, Copy, Clone)]
+#[repr(u8)]
+pub enum VC4RenderConfigFormat {
+    BGR565Dithered = 0,
+    #[default]
+    RGBA8888 = 1,
+    BGR565 = 2,
+}
+
+#[derive(Default, Debug, Copy, Clone)]
+#[repr(u8)]
+pub enum VC4TilingFormat {
+    Linear = 0,
+    #[default]
+    T = 1,
+    LT = 2,
+}
+
 mod ffi {
     #![allow(nonstandard_style)]
 
@@ -27,6 +47,33 @@ mod ffi {
                 bits: 0,
                 flags: 0,
             }
+        }
+    }
+
+    use super::{VC4RenderConfigFormat, VC4TilingFormat};
+
+    impl drm_vc4_submit_rcl_surface {
+        pub fn new_tiled_rgba8(hindex: u32) -> Self {
+            Self {
+                hindex: hindex,
+                offset: 0,
+                bits: 0,
+                flags: 0,
+            }
+            .format(VC4RenderConfigFormat::RGBA8888)
+            .tiling(VC4TilingFormat::T)
+        }
+
+        pub fn format(mut self, format: VC4RenderConfigFormat) -> Self {
+            self.bits &= !(0x3 << 2);
+            self.bits |= (format as u16) << 2;
+            self
+        }
+
+        pub fn tiling(mut self, tiling: VC4TilingFormat) -> Self {
+            self.bits &= !(0x3 << 6);
+            self.bits |= (tiling as u16) << 6;
+            self
         }
     }
 
@@ -342,8 +389,8 @@ mod ffi {
         }
     }
 
-    use crate::vc4_card::ffi::syncobj::SyncObjHandle;
     use drm::buffer::Handle;
+    use syncobj::SyncObjHandle;
 
     pub fn vc4_submit_cl(
         fd: RawFd,
@@ -977,6 +1024,28 @@ impl<'a> Drop for BufferMapping<'a> {
     }
 }
 
+#[allow(nonstandard_style)]
+pub struct drm_event_vblank {
+    pub user_data: u64,
+    pub tv_sec: u32,
+    pub tv_usec: u32,
+    pub sequence: u32,
+    pub crtc_id: u32,
+}
+
+#[allow(nonstandard_style)]
+pub struct drm_event_crtc_sequence {
+    pub user_data: u64,
+    pub time_ns: i64,
+    pub sequence: u64,
+}
+
+pub enum Event {
+    VBlank(drm_event_vblank),
+    FlipComplete,
+    CrtcSequence(drm_event_crtc_sequence),
+}
+
 /// Simple helper methods for opening a `Card`.
 impl Card {
     #![allow(dead_code)]
@@ -985,11 +1054,109 @@ impl Card {
         let mut options = std::fs::OpenOptions::new();
         options.read(true);
         options.write(true);
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NONBLOCK);
         Card(options.open(path).unwrap())
     }
 
     pub fn open_global() -> Self {
         Self::open("/dev/dri/card0")
+    }
+
+    pub fn receive_events<'a, F>(&'a self, mut event_handler: F) -> impl Future + '_
+    where
+        F: FnMut(Event) + 'a,
+    {
+        let afd = AsyncFd::with_interest(self.as_fd(), tokio::io::Interest::READABLE).unwrap();
+        async move {
+            let mut guard = afd.readable().await.unwrap();
+            let fd = guard.get_inner();
+            guard.clear_ready();
+            loop {
+                let mut event_buf: [u8; 1024] = [0; 1024];
+                let amount = nix::unistd::read(fd.as_raw_fd(), &mut event_buf)
+                    .or::<()>(Ok(0))
+                    .unwrap();
+                if amount == 0 {
+                    break;
+                }
+
+                let mut cur: usize = 0;
+                while cur < amount {
+                    const DRM_EVENT_VBLANK: u32 = 1;
+                    const DRM_EVENT_FLIP_COMPLETE: u32 = 2;
+                    const DRM_EVENT_CRTC_SEQUENCE: u32 = 3;
+
+                    #[allow(nonstandard_style)]
+                    struct drm_event {
+                        type_: u32,
+                        length: u32,
+                    }
+
+                    let head = drm_event {
+                        type_: u32::from_ne_bytes(event_buf[cur..cur + 4].try_into().unwrap()),
+                        length: u32::from_ne_bytes(event_buf[cur + 4..cur + 8].try_into().unwrap()),
+                    };
+
+                    match head.type_ {
+                        DRM_EVENT_VBLANK => {
+                            event_handler(Event::VBlank(drm_event_vblank {
+                                user_data: u64::from_ne_bytes(
+                                    event_buf[cur + 8..cur + 16].try_into().unwrap(),
+                                ),
+                                tv_sec: u32::from_ne_bytes(
+                                    event_buf[cur + 16..cur + 20].try_into().unwrap(),
+                                ),
+                                tv_usec: u32::from_ne_bytes(
+                                    event_buf[cur + 20..cur + 24].try_into().unwrap(),
+                                ),
+                                sequence: u32::from_ne_bytes(
+                                    event_buf[cur + 24..cur + 28].try_into().unwrap(),
+                                ),
+                                crtc_id: u32::from_ne_bytes(
+                                    event_buf[cur + 28..cur + 32].try_into().unwrap(),
+                                ),
+                            }));
+                        }
+                        DRM_EVENT_FLIP_COMPLETE => {
+                            event_handler(Event::FlipComplete);
+                        }
+                        DRM_EVENT_CRTC_SEQUENCE => {
+                            event_handler(Event::CrtcSequence(drm_event_crtc_sequence {
+                                user_data: u64::from_ne_bytes(
+                                    event_buf[cur + 8..cur + 16].try_into().unwrap(),
+                                ),
+                                time_ns: i64::from_ne_bytes(
+                                    event_buf[cur + 16..cur + 24].try_into().unwrap(),
+                                ),
+                                sequence: u64::from_ne_bytes(
+                                    event_buf[cur + 24..cur + 32].try_into().unwrap(),
+                                ),
+                            }));
+                        }
+                        _ => {}
+                    }
+
+                    cur += head.length as usize;
+                }
+            }
+        }
+    }
+
+    pub async fn wait_for_flip(&self) {
+        loop {
+            let mut flip_occurred = false;
+            self.receive_events(|e| match e {
+                Event::FlipComplete => {
+                    flip_occurred = true;
+                }
+                _ => {}
+            })
+            .await;
+            if flip_occurred {
+                break;
+            }
+        }
     }
 
     pub fn vc4_submit_cl(
@@ -1169,7 +1336,7 @@ impl Card {
         &self,
         size: (u32, u32),
     ) -> Result<ImageBuffer, SystemError> {
-        use crate::vc4_image::*;
+        use crate::image::*;
         let size_in_bytes = Translator::alloc_size(size.into(), 32);
         let buffer = self.vc4_create_bo(size_in_bytes)?;
         self.vc4_set_tiling(buffer.handle, true)
