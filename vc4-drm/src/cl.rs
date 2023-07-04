@@ -81,7 +81,11 @@ pub struct TileBinningModeConfiguration {
 }
 
 impl TileBinningModeConfiguration {
-    pub fn set_size_in_pixels(&mut self, width: u16, height: u16) {
+    pub fn with_size_in_pixels(width: u16, height: u16) -> Self {
+        Self::default().set_size_in_pixels(width, height)
+    }
+
+    pub fn set_size_in_pixels(mut self, width: u16, height: u16) -> Self {
         let mut tile_size_w: u16 = 64;
         let mut tile_size_h: u16 = 64;
 
@@ -96,6 +100,8 @@ impl TileBinningModeConfiguration {
 
         self.width_in_tiles = checked_into(div_round_up(width, tile_size_w));
         self.height_in_tiles = checked_into(div_round_up(height, tile_size_h));
+
+        self
     }
 }
 
@@ -149,7 +155,7 @@ impl BinClStructure for Flush {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Copy, Clone, PartialEq)]
 pub struct LineWidth {
     pub line_width: f32,
 }
@@ -164,7 +170,7 @@ impl BinClStructure for LineWidth {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Copy, Clone, PartialEq)]
 pub struct ClipWindow {
     pub clip_window_left_pixel_coordinate: u16,
     pub clip_window_bottom_pixel_coordinate: u16,
@@ -185,7 +191,7 @@ impl BinClStructure for ClipWindow {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Copy, Clone, PartialEq)]
 pub struct ClipperXYScaling {
     pub viewport_half_width_in_1_16th_of_pixel: f32,
     pub viewport_half_height_in_1_16th_of_pixel: f32,
@@ -202,7 +208,7 @@ impl BinClStructure for ClipperXYScaling {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Copy, Clone, PartialEq)]
 pub struct ViewportOffset {
     pub viewport_centre_x_coordinate_12_4: u16,
     pub viewport_centre_y_coordinate_12_4: u16,
@@ -219,7 +225,7 @@ impl BinClStructure for ViewportOffset {
     }
 }
 
-#[derive(Default, Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone, PartialEq)]
 #[repr(u8)]
 pub enum CompareFunction {
     #[default]
@@ -233,7 +239,7 @@ pub enum CompareFunction {
     Always = 7,
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Copy, Clone, PartialEq)]
 pub struct ConfigurationBits {
     pub enable_forward_facing_primitive: bool,
     pub enable_reverse_facing_primitive: bool,
@@ -274,7 +280,7 @@ impl BinClStructure for ConfigurationBits {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Copy, Clone, PartialEq)]
 pub struct DepthOffset {
     pub depth_offset_factor: u16,
     pub depth_offset_units: u16,
@@ -291,7 +297,7 @@ impl BinClStructure for DepthOffset {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Copy, Clone, PartialEq)]
 pub struct ClipperZScaleAndOffset {
     pub viewport_z_scale_zc_to_zs: f32,
     pub viewport_z_offset_zc_to_zs: f32,
@@ -308,7 +314,7 @@ impl BinClStructure for ClipperZScaleAndOffset {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Copy, Clone, PartialEq)]
 pub struct PointSize {
     pub point_size: f32,
 }
@@ -323,7 +329,7 @@ impl BinClStructure for PointSize {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Copy, Clone, PartialEq)]
 pub struct FlatShadeFlags {
     pub flat_shading_flags: u32,
 }

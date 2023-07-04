@@ -1247,17 +1247,11 @@ impl Card {
         rcl_order_increasing_x: bool,
         rcl_order_increasing_y: bool,
     ) -> Result<impl Future, SystemError> {
-        let flags = if use_clear_color { 1 << 0 } else { 0 }
-            | if fixed_rcl_order { 1 << 1 } else { 0 }
-            | if rcl_order_increasing_x { 1 << 2 } else { 0 }
-            | if rcl_order_increasing_y { 1 << 3 } else { 0 };
-
         let syncobj = {
             let syncobj_handle = ffi::syncobj::create(self.as_fd().as_raw_fd(), false)?;
 
             let syncobj = {
-                ffi::vc4_submit_cl(
-                    self.as_fd().as_raw_fd(),
+                self.vc4_submit_cl(
                     bin_cl,
                     shader_rec,
                     uniforms,
@@ -1278,7 +1272,10 @@ impl Card {
                     clear_color,
                     clear_z,
                     clear_s,
-                    flags,
+                    use_clear_color,
+                    fixed_rcl_order,
+                    rcl_order_increasing_x,
+                    rcl_order_increasing_y,
                     None,
                     Some(syncobj_handle),
                 )?;
