@@ -1,5 +1,5 @@
 use super::ShaderNode;
-use crate::{CommandRecorder, ShaderAttribute, ShaderUniform, TextureUniform};
+use rpi_drm::{Buffer, CommandRecorder, ShaderAttribute, ShaderUniform, TextureUniform};
 use vc4_drm::cl::{
     AttributeRecord, TextureConfigUniform, TextureDataType, TextureMagFilterType,
     TextureMinFilterType, TextureWrapType,
@@ -132,28 +132,24 @@ const FS_ASM_TEX_CODE: [u64; 18] = qpu! {
 };
 pub static FS_ASM_TEX: ShaderNode = ShaderNode::new(&FS_ASM_TEX_CODE);
 
-pub fn bind(
-    recorder: &mut CommandRecorder,
-    vbo: vc4_drm::card::Buffer,
-    tex: vc4_drm::card::Buffer,
-) {
+pub fn bind(recorder: &mut CommandRecorder, vbo: Buffer, tex: Buffer) {
     let vs_uniforms = [
         ShaderUniform::Constant(u32::from_le_bytes(1.0_f32.to_le_bytes())),
         ShaderUniform::Constant(u32::from_le_bytes(
-            ((recorder.window_size.0 * 16 / 2) as f32).to_le_bytes(),
+            ((recorder.window_size().0 * 16 / 2) as f32).to_le_bytes(),
         )),
         ShaderUniform::Constant(u32::from_le_bytes(
-            ((recorder.window_size.1 * 16 / 2) as f32).to_le_bytes(),
+            ((recorder.window_size().1 * 16 / 2) as f32).to_le_bytes(),
         )),
         ShaderUniform::Constant(u32::from_le_bytes(1.0_f32.to_le_bytes())),
     ];
     recorder.bind_shader(
         false,
         *FS_ASM_TEX.handle.get().unwrap(),
-        *CS_ASM.handle.get().unwrap(),
         *VS_ASM.handle.get().unwrap(),
+        *CS_ASM.handle.get().unwrap(),
         &[ShaderAttribute {
-            handle: vbo,
+            buffer: vbo,
             record: AttributeRecord {
                 address: 0,
                 number_of_bytes_minus_1: 7,
@@ -163,7 +159,7 @@ pub fn bind(
             },
         }],
         &[ShaderUniform::Texture(TextureUniform {
-            handle: tex,
+            buffer: tex,
             config: TextureConfigUniform {
                 base_address: 0,
                 cache_swizzle: 0,

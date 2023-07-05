@@ -20,7 +20,11 @@ impl ShaderNode {
     pub fn initialize(&'static self) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async {
             self.handle
-                .set(crate::get_card().vc4_create_shader_bo(&self.code).unwrap())
+                .set(
+                    rpi_drm::get_card()
+                        .vc4_create_shader_bo(&self.code)
+                        .unwrap(),
+                )
                 .unwrap()
         })
     }
