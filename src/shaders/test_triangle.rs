@@ -1,5 +1,5 @@
 use super::ShaderNode;
-use rpi_drm::{Buffer, CommandRecorder, ShaderAttribute, ShaderUniform, TextureUniform};
+use rpi_drm::{Buffer, CommandEncoder, ShaderAttribute, ShaderUniform, TextureUniform};
 use vc4_drm::cl::{
     AttributeRecord, TextureConfigUniform, TextureDataType, TextureMagFilterType,
     TextureMinFilterType, TextureWrapType,
@@ -132,33 +132,57 @@ const FS_ASM_TEX_CODE: [u64; 18] = qpu! {
 };
 pub static FS_ASM_TEX: ShaderNode = ShaderNode::new(&FS_ASM_TEX_CODE);
 
-pub fn bind(recorder: &mut CommandRecorder, vbo: Buffer, tex: Buffer) {
+const FS_ASM_CODE: [u64; 5] = qpu! {
+    sig_load_imm ; r0 = load32.always(0xffa14ccc) ; nop = load32() ;
+    sig_none ; tlb_color_all = or.always(r0, r0) ; nop = nop(r0, r0) ;
+    sig_end ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
+    sig_none ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
+    sig_unlock_score ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
+};
+pub static FS_ASM: ShaderNode = ShaderNode::new(&FS_ASM_CODE);
+
+pub fn bind(encoder: &mut CommandEncoder, vbo_vs: Buffer, vbo_cs: Buffer, tex: Buffer) {
     let vs_uniforms = [
-        ShaderUniform::Constant(u32::from_le_bytes(1.0_f32.to_le_bytes())),
-        ShaderUniform::Constant(u32::from_le_bytes(
-            ((recorder.window_size().0 * 16 / 2) as f32).to_le_bytes(),
+        ShaderUniform::Constant(qpu::transmute_f32(1.0_f32)),
+        ShaderUniform::Constant(qpu::transmute_f32(
+            (encoder.window_size().0 * 16 / 2) as f32,
         )),
-        ShaderUniform::Constant(u32::from_le_bytes(
-            ((recorder.window_size().1 * 16 / 2) as f32).to_le_bytes(),
+        ShaderUniform::Constant(qpu::transmute_f32(
+            (encoder.window_size().1 * 16 / 2) as f32,
         )),
-        ShaderUniform::Constant(u32::from_le_bytes(1.0_f32.to_le_bytes())),
+        ShaderUniform::Constant(qpu::transmute_f32(1.0_f32)),
     ];
-    recorder.bind_shader(
-        false,
-        *FS_ASM_TEX.handle.get().unwrap(),
+    encoder.bind_shader(
+        true,
+        0,
+        *FS_ASM.handle.get().unwrap(),
         *VS_ASM.handle.get().unwrap(),
         *CS_ASM.handle.get().unwrap(),
         &[ShaderAttribute {
-            buffer: vbo,
+            buffer: vbo_vs,
             record: AttributeRecord {
                 address: 0,
-                number_of_bytes_minus_1: 7,
-                stride: 8,
+                number_of_bytes_minus_1: 15,
+                stride: 16,
                 vertex_shader_vpm_offset: 0,
                 coordinate_shader_vpm_offset: 0,
             },
-        }],
-        &[ShaderUniform::Texture(TextureUniform {
+            vs: true,
+            cs: false,
+        },
+            ShaderAttribute {
+                buffer: vbo_cs,
+                record: AttributeRecord {
+                    address: 0,
+                    number_of_bytes_minus_1: 7,
+                    stride: 8,
+                    vertex_shader_vpm_offset: 0,
+                    coordinate_shader_vpm_offset: 0,
+                },
+                vs: false,
+                cs: true,
+            }],
+        &[/*ShaderUniform::Texture(TextureUniform {
             buffer: tex,
             config: TextureConfigUniform {
                 base_address: 0,
@@ -175,7 +199,7 @@ pub fn bind(recorder: &mut CommandRecorder, vbo: Buffer, tex: Buffer) {
                 wrap_t: TextureWrapType::Repeat,
                 wrap_s: TextureWrapType::Repeat,
             },
-        })],
+        })*/],
         &vs_uniforms,
         &vs_uniforms,
     )

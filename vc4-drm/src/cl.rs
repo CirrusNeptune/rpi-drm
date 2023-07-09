@@ -376,6 +376,36 @@ impl BinClStructure for VertexArrayPrimitives {
     }
 }
 
+#[derive(Default, Debug, Copy, Clone)]
+#[repr(u8)]
+pub enum IndexType {
+    #[default]
+    _8bit = 0,
+    _16bit = 1,
+}
+
+#[derive(Default, Debug)]
+pub struct IndexedPrimitiveList {
+    pub index_type: IndexType,
+    pub primitive_mode: PrimitiveMode,
+    pub length: u32,
+    pub address_of_indices_list: u32,
+    pub maximum_index: u32,
+}
+
+impl BinClStructure for IndexedPrimitiveList {
+    fn encode<W: Write>(&self, writer: &mut W) -> Result<()> {
+        const V3D21_INDEXED_PRIMITIVE_LIST: u8 = 32;
+        let mut buf = [0_u8; 14];
+        buf[0] = V3D21_INDEXED_PRIMITIVE_LIST;
+        buf[1] = gen_u8(self.primitive_mode as u8, 0, 3) | gen_u8(self.index_type as u8, 4, 7);
+        buf[2..6].copy_from_slice(&self.length.to_le_bytes());
+        buf[6..10].copy_from_slice(&self.address_of_indices_list.to_le_bytes());
+        buf[10..14].copy_from_slice(&self.maximum_index.to_le_bytes());
+        writer.write_all(&buf)
+    }
+}
+
 #[derive(Default, Debug)]
 pub struct GlShaderState {
     pub address: u32,
@@ -394,6 +424,23 @@ impl BinClStructure for GlShaderState {
                 | self.number_of_attribute_arrays as u32)
                 .to_le_bytes(),
         );
+        writer.write_all(&buf)
+    }
+}
+
+#[derive(Default, Debug)]
+pub struct GemRelocations {
+    pub buffer0: u32,
+    pub buffer1: u32,
+}
+
+impl BinClStructure for GemRelocations {
+    fn encode<W: Write>(&self, writer: &mut W) -> Result<()> {
+        const V3D21_GEM_RELOCATIONS: u8 = 254;
+        let mut buf = [0_u8; 9];
+        buf[0] = V3D21_GEM_RELOCATIONS;
+        buf[1..5].copy_from_slice(&self.buffer0.to_le_bytes());
+        buf[5..9].copy_from_slice(&self.buffer1.to_le_bytes());
         writer.write_all(&buf)
     }
 }

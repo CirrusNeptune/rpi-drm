@@ -670,6 +670,38 @@ macro_rules! qpu {
     };
 
     (@parse_pack({$sig:ident;
+    r0 .$add_pack:ident = $op_add:ident ($add_a:tt, $add_b:tt, $raddr_a:ident, $raddr_b:ident);
+    $waddr_mul:ident = $op_mul:ident ($mul_a:ident, $mul_b:ident);
+    }) -> (false, false) $mods:tt $cond_mul:tt
+    {$($tail:tt)*} -> [$($out:tt,)*]) => {
+        "r0 cannot be used as pack destination"
+    };
+
+    (@parse_pack({$sig:ident;
+    r1 .$add_pack:ident = $op_add:ident ($add_a:tt, $add_b:tt, $raddr_a:ident, $raddr_b:ident);
+    $waddr_mul:ident = $op_mul:ident ($mul_a:ident, $mul_b:ident);
+    }) -> (false, false) $mods:tt $cond_mul:tt
+    {$($tail:tt)*} -> [$($out:tt,)*]) => {
+        "r1 cannot be used as pack destination"
+    };
+
+    (@parse_pack({$sig:ident;
+    r2 .$add_pack:ident = $op_add:ident ($add_a:tt, $add_b:tt, $raddr_a:ident, $raddr_b:ident);
+    $waddr_mul:ident = $op_mul:ident ($mul_a:ident, $mul_b:ident);
+    }) -> (false, false) $mods:tt $cond_mul:tt
+    {$($tail:tt)*} -> [$($out:tt,)*]) => {
+        "r2 cannot be used as pack destination"
+    };
+
+    (@parse_pack({$sig:ident;
+    r3 .$add_pack:ident = $op_add:ident ($add_a:tt, $add_b:tt, $raddr_a:ident, $raddr_b:ident);
+    $waddr_mul:ident = $op_mul:ident ($mul_a:ident, $mul_b:ident);
+    }) -> (false, false) $mods:tt $cond_mul:tt
+    {$($tail:tt)*} -> [$($out:tt,)*]) => {
+        "r3 cannot be used as pack destination"
+    };
+
+    (@parse_pack({$sig:ident;
     $waddr_add:ident .$add_pack:ident = $op_add:ident ($add_a:tt, $add_b:tt, $raddr_a:ident, $raddr_b:ident);
     $waddr_mul:ident = $op_mul:ident ($mul_a:ident, $mul_b:ident);
     }) -> (false, false) $mods:tt $cond_mul:tt

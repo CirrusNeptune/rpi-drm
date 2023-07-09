@@ -1,12 +1,14 @@
 #![recursion_limit = "10000"]
 mod shaders;
 
-use rpi_drm::{Buffer, CommandRecorder};
-use std::io::{Cursor, Write};
+use rpi_drm::{Buffer, CommandEncoder};
+use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use vc4_drm::{cl::PrimitiveMode, glam::UVec2};
+use vc4_drm::cl::IndexType;
 
 async fn async_main() {
     shaders::initialize_shaders().await;
+    shaders::test_model::get_model();
 
     let display_framebuffers = rpi_drm::open_and_allocate_display_framebuffers();
 
@@ -32,13 +34,47 @@ async fn async_main() {
         buffer
     };
 
-    let vbo = Buffer::new(24);
+    let vbo_vs = Buffer::new(48);
+    let vbo_cs = Buffer::new(24);
+    let ibo = Buffer::new(6);
+    {
+        let mut ibo_map = ibo.mmap();
+        let mut cur = Cursor::new(ibo_map.as_mut());
+        cur.write_all(&0_u16.to_le_bytes()).unwrap();
+        cur.write_all(&1_u16.to_le_bytes()).unwrap();
+        cur.write_all(&2_u16.to_le_bytes()).unwrap();
+    }
 
-    let mut command_recorder = CommandRecorder::new(display_framebuffers.size);
-    command_recorder.begin_pass();
-    shaders::test_triangle::bind(&mut command_recorder, vbo.clone(), tex_bo.clone());
-    command_recorder.draw_array_primitives(PrimitiveMode::Triangles, 0, 3);
-    command_recorder.end_pass();
+    let mut command_encoder = CommandEncoder::new(display_framebuffers.size);
+    command_encoder.begin_pass();
+    //shaders::test_triangle::bind(&mut command_encoder, vbo_vs.clone(), vbo_cs.clone(), tex_bo.clone());
+    //command_encoder.draw_array_primitives(PrimitiveMode::Triangles, 0, 3);
+    //command_encoder.draw_indexed_primitives(ibo.clone(), IndexType::_16bit, PrimitiveMode::Triangles, 0, 3, 2);
+    shaders::test_model::draw(&mut command_encoder);
+    command_encoder.end_pass();
+
+    let mut imu_handle = {
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true);
+        options
+            .open("/sys/bus/iio/devices/iio:device0/in_rot_quaternion_raw")
+            .unwrap()
+    };
+    let mut read_quaternion = || {
+        let mut quaternion_buf: [u8; 64] = [0; 64];
+        imu_handle.seek(SeekFrom::Start(0)).unwrap();
+        let read_num = imu_handle.read(&mut quaternion_buf).unwrap();
+        let quaternion_string = std::str::from_utf8(&quaternion_buf[0..read_num]).unwrap();
+        let mut quaterion_arr: [f32; 4] = [0.0; 4];
+        for (i, comp) in quaternion_string.split(' ').enumerate() {
+            use std::str::FromStr;
+            quaterion_arr[(i + 3) % 4] = f32::from_str(comp).unwrap() / 16383.0;
+            if i == 3 {
+                break;
+            }
+        }
+        vc4_drm::glam::Quat::from_array(quaterion_arr)
+    };
 
     display_framebuffers.set_crtc(0);
 
@@ -53,33 +89,53 @@ async fn async_main() {
             //tokio::time::sleep(Duration::from_micros(wait_usec as u64)).await;
         }
 
+        let quaternion = read_quaternion();
         {
-            let mut vbo_map = vbo.mmap();
+            let mut vbo_map = vbo_vs.mmap();
             let mut cur = Cursor::new(vbo_map.as_mut());
 
             let side_len = 3.0 / f32::sqrt(3.0) / 2.0;
 
-            for j in 0..1 {
-                let rot_mat = vc4_drm::glam::Mat2::from_angle(
-                    (i + j) as f32 * 2.0 * std::f32::consts::PI / 128.0,
-                );
+            let v0 = quaternion.mul_vec3([-side_len, 0.5, 0.0].into());
+            cur.write_all(&v0.x.to_le_bytes()).unwrap();
+            cur.write_all(&v0.y.to_le_bytes()).unwrap();
+            cur.write_all(&0.0_f32.to_le_bytes()).unwrap();
+            cur.write_all(&0.0_f32.to_le_bytes()).unwrap();
 
-                let v0 = rot_mat.mul_vec2([-side_len, 0.5].into());
-                cur.write_all(&f32::from(v0.x).to_le_bytes()).unwrap();
-                cur.write_all(&f32::from(v0.y).to_le_bytes()).unwrap();
+            let v1 = quaternion.mul_vec3([side_len, 0.5, 0.0].into());
+            cur.write_all(&v1.x.to_le_bytes()).unwrap();
+            cur.write_all(&v1.y.to_le_bytes()).unwrap();
+            cur.write_all(&0.0_f32.to_le_bytes()).unwrap();
+            cur.write_all(&0.0_f32.to_le_bytes()).unwrap();
 
-                let v1 = rot_mat.mul_vec2([side_len, 0.5].into());
-                cur.write_all(&f32::from(v1.x).to_le_bytes()).unwrap();
-                cur.write_all(&f32::from(v1.y).to_le_bytes()).unwrap();
-
-                let v2 = rot_mat.mul_vec2([0.0, -1.0].into());
-                cur.write_all(&f32::from(v2.x).to_le_bytes()).unwrap();
-                cur.write_all(&f32::from(v2.y).to_le_bytes()).unwrap();
-            }
+            let v2 = quaternion.mul_vec3([0.0, -1.0, 0.0].into());
+            cur.write_all(&v2.x.to_le_bytes()).unwrap();
+            cur.write_all(&v2.y.to_le_bytes()).unwrap();
+            cur.write_all(&0.0_f32.to_le_bytes()).unwrap();
+            cur.write_all(&0.0_f32.to_le_bytes()).unwrap();
         }
 
-        let clear_color = 0xffffffff;
-        command_recorder
+        {
+            let mut vbo_map = vbo_cs.mmap();
+            let mut cur = Cursor::new(vbo_map.as_mut());
+
+            let side_len = 3.0 / f32::sqrt(3.0) / 2.0;
+
+            let v0 = quaternion.mul_vec3([-side_len, 0.5, 0.0].into());
+            cur.write_all(&v0.x.to_le_bytes()).unwrap();
+            cur.write_all(&v0.y.to_le_bytes()).unwrap();
+
+            let v1 = quaternion.mul_vec3([side_len, 0.5, 0.0].into());
+            cur.write_all(&v1.x.to_le_bytes()).unwrap();
+            cur.write_all(&v1.y.to_le_bytes()).unwrap();
+
+            let v2 = quaternion.mul_vec3([0.0, -1.0, 0.0].into());
+            cur.write_all(&v2.x.to_le_bytes()).unwrap();
+            cur.write_all(&v2.y.to_le_bytes()).unwrap();
+        }
+
+        let clear_color = 0xff000000; // ARGB
+        command_encoder
             .submit(clear_color, framebuffer.bo.clone())
             .await;
 

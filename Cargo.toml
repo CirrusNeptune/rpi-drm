@@ -6,3 +6,4 @@ edition = "2021"
 
 [dependencies]
 vc4-drm = { path = "vc4-drm" }
+png = "0.17.9"

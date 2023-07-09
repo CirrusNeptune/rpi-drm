@@ -3,19 +3,22 @@ use std::io::Write;
 use std::sync::{Arc, OnceLock};
 use vc4_drm::card::{BufferMapping, Card};
 use vc4_drm::cl::*;
-use vc4_drm::drm::control::{connector::State, Device, PageFlipFlags};
+use vc4_drm::drm::{
+    buffer,
+    control::{connector, crtc, framebuffer, Device, Mode, PageFlipFlags},
+};
 
 pub struct Framebuffer {
     pub bo: Buffer,
-    pub framebuffer: vc4_drm::drm::control::framebuffer::Handle,
+    pub framebuffer: framebuffer::Handle,
 }
 
 pub struct DisplayFramebuffers {
     pub size: (u16, u16),
-    crtc: vc4_drm::drm::control::crtc::Handle,
+    crtc: crtc::Handle,
     pub framebuffers: [Framebuffer; 2],
-    connector: vc4_drm::drm::control::connector::Handle,
-    mode: vc4_drm::drm::control::Mode,
+    connector: connector::Handle,
+    mode: Mode,
 }
 
 impl DisplayFramebuffers {
@@ -55,7 +58,7 @@ pub fn open_and_allocate_display_framebuffers() -> DisplayFramebuffers {
         let connector_info = card
             .get_connector(*connector, false)
             .expect("Unable to get_connector");
-        if connector_info.state() != State::Connected {
+        if connector_info.state() != connector::State::Connected {
             continue;
         }
         if connector_info.modes().len() == 0 {
@@ -126,12 +129,12 @@ impl Buffer {
         get_card().vc4_mmap_bo(&self.0 .0).unwrap()
     }
 
-    pub fn handle(&self) -> vc4_drm::drm::buffer::Handle {
+    pub fn handle(&self) -> buffer::Handle {
         self.0 .0.handle()
     }
 }
 
-impl From<Buffer> for vc4_drm::drm::buffer::Handle {
+impl From<Buffer> for buffer::Handle {
     fn from(value: Buffer) -> Self {
         value.handle()
     }
@@ -140,6 +143,8 @@ impl From<Buffer> for vc4_drm::drm::buffer::Handle {
 pub struct ShaderAttribute {
     pub buffer: Buffer,
     pub record: AttributeRecord,
+    pub vs: bool,
+    pub cs: bool,
 }
 
 pub struct TextureUniform {
@@ -173,14 +178,14 @@ impl<T: Default + BinClStructure, const N: u16> StateTracker<T, N> {
 }
 
 #[derive(Default)]
-pub struct CommandRecorder {
+pub struct CommandEncoder {
     bin_cl_buf: Vec<u8>,
     shader_rec_buf: Vec<u8>,
     shader_rec_count: u32,
     uniforms: Vec<u32>,
     bo_buffer_map: HashMap<Buffer, u32>,
-    bo_handle_map: HashMap<vc4_drm::drm::buffer::Handle, u32>,
-    bo_handles: Vec<vc4_drm::drm::buffer::Handle>,
+    bo_handle_map: HashMap<buffer::Handle, u32>,
+    bo_handles: Vec<buffer::Handle>,
     window_size: (u16, u16),
     width_in_tiles: u8,
     height_in_tiles: u8,
@@ -242,7 +247,7 @@ macro_rules! command_recorder_flush {
     };
 }
 
-impl CommandRecorder {
+impl CommandEncoder {
     pub fn new(window_size: (u16, u16)) -> Self {
         let mut obj = Self::default();
         obj.window_size = window_size;
@@ -264,7 +269,7 @@ impl CommandRecorder {
         }
     }
 
-    pub fn relocate_handle(&mut self, handle: vc4_drm::drm::buffer::Handle) -> u32 {
+    pub fn relocate_handle(&mut self, handle: buffer::Handle) -> u32 {
         if let Some(index) = self.bo_handle_map.get(&handle) {
             *index
         } else {
@@ -397,12 +402,30 @@ impl CommandRecorder {
         }
     }
 
+    pub fn set_depth_test(
+        &mut self,
+        depth_test: bool,
+        compare_function: CompareFunction,
+        depth_write: bool,
+    ) {
+        let mut new_configuration_bits = self.configuration_bits.0;
+        new_configuration_bits.early_z_enable = depth_test;
+        new_configuration_bits.z_updates_enable = depth_test && depth_write;
+        new_configuration_bits.depth_test_function = if depth_test {
+            compare_function
+        } else {
+            CompareFunction::Always
+        };
+        self.set_configuration_bits(new_configuration_bits);
+    }
+
     pub fn bind_shader(
         &mut self,
         fs_single_threaded: bool,
-        fs: vc4_drm::drm::buffer::Handle,
-        vs: vc4_drm::drm::buffer::Handle,
-        cs: vc4_drm::drm::buffer::Handle,
+        fs_number_of_varyings: u8,
+        fs: buffer::Handle,
+        vs: buffer::Handle,
+        cs: buffer::Handle,
         attributes: &[ShaderAttribute],
         fs_uniforms: &[ShaderUniform],
         vs_uniforms: &[ShaderUniform],
@@ -431,15 +454,23 @@ impl CommandRecorder {
             .write_all(&cs_idx.to_le_bytes())
             .unwrap();
 
-        let mut attributes_size = 0;
-        let mut attributes_bits = 0;
-        for i in 0..attributes.len() {
-            let buf_idx = self.relocate_buffer(attributes[i].buffer.clone());
+        let mut vs_attributes_size = 0;
+        let mut vs_attributes_bits = 0;
+        let mut cs_attributes_size = 0;
+        let mut cs_attributes_bits = 0;
+        for (i, attribute) in attributes.iter().enumerate() {
+            let buf_idx = self.relocate_buffer(attribute.buffer.clone());
             self.shader_rec_buf
                 .write_all(&buf_idx.to_le_bytes())
                 .unwrap();
-            attributes_size += attributes[i].record.number_of_bytes_minus_1 + 1;
-            attributes_bits |= 1 << i;
+            if attribute.vs {
+                vs_attributes_size += attribute.record.number_of_bytes_minus_1 + 1;
+                vs_attributes_bits |= 1 << i;
+            }
+            if attribute.cs {
+                cs_attributes_size += attribute.record.number_of_bytes_minus_1 + 1;
+                cs_attributes_bits |= 1 << i;
+            }
         }
 
         GlShaderRecord {
@@ -447,17 +478,17 @@ impl CommandRecorder {
             point_size_included_in_shaded_vertex_data: false,
             enable_clipping: true,
             fragment_shader_number_of_uniforms_not_used_currently: 0,
-            fragment_shader_number_of_varyings: 0,
+            fragment_shader_number_of_varyings: fs_number_of_varyings,
             fragment_shader_code_address_offset: 0,
             fragment_shader_uniforms_address: 0,
             vertex_shader_number_of_uniforms_not_used_currently: 0,
-            vertex_shader_attribute_array_select_bits: attributes_bits,
-            vertex_shader_total_attributes_size: attributes_size,
+            vertex_shader_attribute_array_select_bits: vs_attributes_bits,
+            vertex_shader_total_attributes_size: vs_attributes_size,
             vertex_shader_code_address_offset: 0,
             vertex_shader_uniforms_address: 0,
             coordinate_shader_number_of_uniforms_not_used_currently: 0,
-            coordinate_shader_attribute_array_select_bits: attributes_bits,
-            coordinate_shader_total_attributes_size: attributes_size,
+            coordinate_shader_attribute_array_select_bits: cs_attributes_bits,
+            coordinate_shader_total_attributes_size: cs_attributes_size,
             coordinate_shader_code_address_offset: 0,
             coordinate_shader_uniforms_address: 0,
         }
@@ -489,6 +520,37 @@ impl CommandRecorder {
             index_of_first_vertex: start,
             length,
             primitive_mode,
+        }
+        .encode(&mut self.bin_cl_buf)
+        .unwrap();
+    }
+
+    pub fn draw_indexed_primitives(
+        &mut self,
+        index_buffer: Buffer,
+        index_type: IndexType,
+        primitive_mode: PrimitiveMode,
+        start: u32,
+        length: u32,
+        maximum_index: u32,
+    ) {
+        self.flush_state();
+
+        let index_buffer_idx = self.relocate_buffer(index_buffer);
+
+        GemRelocations {
+            buffer0: index_buffer_idx,
+            buffer1: 0,
+        }
+        .encode(&mut self.bin_cl_buf)
+        .unwrap();
+
+        IndexedPrimitiveList {
+            index_type,
+            primitive_mode,
+            length,
+            address_of_indices_list: (index_type as u32 + 1) * start,
+            maximum_index,
         }
         .encode(&mut self.bin_cl_buf)
         .unwrap();

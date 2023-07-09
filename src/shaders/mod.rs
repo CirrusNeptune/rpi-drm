@@ -1,3 +1,4 @@
+pub mod test_model;
 pub mod test_triangle;
 
 use std::sync::OnceLock;
@@ -34,6 +35,10 @@ pub async fn initialize_shaders() {
     let _ = tokio::join!(
         test_triangle::VS_ASM.initialize(),
         test_triangle::CS_ASM.initialize(),
+        test_triangle::FS_ASM.initialize(),
         test_triangle::FS_ASM_TEX.initialize(),
+        test_model::VS_ASM.initialize(),
+        test_model::CS_ASM.initialize(),
+        test_model::FS_ASM.initialize(),
     );
 }
