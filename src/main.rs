@@ -3,8 +3,9 @@ mod shaders;
 
 use rpi_drm::{Buffer, CommandEncoder};
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
-use vc4_drm::{cl::PrimitiveMode, glam::UVec2};
+use vc4_drm::{cl::PrimitiveMode, glam, glam::UVec2};
 use vc4_drm::cl::IndexType;
+use num_traits::float::FloatConst;
 
 async fn async_main() {
     shaders::initialize_shaders().await;
@@ -45,14 +46,6 @@ async fn async_main() {
         cur.write_all(&2_u16.to_le_bytes()).unwrap();
     }
 
-    let mut command_encoder = CommandEncoder::new(display_framebuffers.size);
-    command_encoder.begin_pass();
-    //shaders::test_triangle::bind(&mut command_encoder, vbo_vs.clone(), vbo_cs.clone(), tex_bo.clone());
-    //command_encoder.draw_array_primitives(PrimitiveMode::Triangles, 0, 3);
-    //command_encoder.draw_indexed_primitives(ibo.clone(), IndexType::_16bit, PrimitiveMode::Triangles, 0, 3, 2);
-    shaders::test_model::draw(&mut command_encoder);
-    command_encoder.end_pass();
-
     let mut imu_handle = {
         let mut options = std::fs::OpenOptions::new();
         options.read(true);
@@ -77,6 +70,7 @@ async fn async_main() {
     };
 
     display_framebuffers.set_crtc(0);
+    let mut command_encoder = CommandEncoder::new(display_framebuffers.size);
 
     let mut wait_usec: i64 = 0;
 
@@ -114,6 +108,18 @@ async fn async_main() {
             cur.write_all(&0.0_f32.to_le_bytes()).unwrap();
             cur.write_all(&0.0_f32.to_le_bytes()).unwrap();
         }
+
+        let xf = glam::Mat4::from_quat(quaternion);
+        let xf2 = glam::Mat4::from_scale_rotation_translation(glam::Vec3::new(1.0, 1.0, 0.5), glam::Quat::IDENTITY, glam::Vec3::new(0.0, 0.0, 0.5));
+        let xf3 = glam::Mat4::perspective_lh(60.0 * f32::PI() / 180.0, 1.0, 0.0, 1.0);
+
+        command_encoder.clear();
+        command_encoder.begin_pass();
+        //shaders::test_triangle::bind(&mut command_encoder, vbo_vs.clone(), vbo_cs.clone(), tex_bo.clone());
+        //command_encoder.draw_array_primitives(PrimitiveMode::Triangles, 0, 3);
+        //command_encoder.draw_indexed_primitives(ibo.clone(), IndexType::_16bit, PrimitiveMode::Triangles, 0, 3, 2);
+        shaders::test_model::draw(&mut command_encoder, xf3 * xf2 * xf);
+        command_encoder.end_pass();
 
         {
             let mut vbo_map = vbo_cs.mmap();

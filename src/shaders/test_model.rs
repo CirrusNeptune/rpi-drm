@@ -4,7 +4,7 @@ use std::io::Read;
 use std::sync;
 use vc4_drm::cl::{AttributeRecord, CompareFunction, IndexType, PrimitiveMode, TextureConfigUniform, TextureDataType, TextureMagFilterType, TextureMinFilterType, TextureWrapType};
 use vc4_drm::glam::UVec2;
-use vc4_drm::qpu;
+use vc4_drm::{glam, qpu};
 
 // Ys|Xs, Zs, 1/Wc, Varyings...
 
@@ -14,17 +14,105 @@ use vc4_drm::qpu;
 // Uc:
 // Vc:
 
-const VS_ASM_CODE: [u64; 18] = qpu! {
-    // Read X
-    // r0 = vpm
+// r0 = r1X * X
+// r1 = r1Y * Y
+// r0 = r0 + r1
+// r1 = r1Z * Z
+// r0 = r0 + r1
+// r0 = r0 + uni
+
+// r1 = r1X * X
+// r2 = r1Y * Y
+// r1 = r1 + r2
+// r2 = r1Z * Z
+// r1 = r1 + r2
+
+// r2 = r1X * X
+// r3 = r1Y * Y
+// r2 = r2 + r3
+// r3 = r1Z * Z
+// r2 = r2 + r3
+
+const VS_ASM_CODE: [u64; 62] = qpu! {
     sig_load_imm ; vr_setup = load32.always(qpu::vpm_block_read_horizontal_32(8, 1, 0)) ; nop = load32.always() ;
-    sig_none ; r0 = or.always(a, a, vpm_read, nop) ; nop = nop(r0, r0) ;
+
+    // Load XYZ into regfile A
+    sig_none ; ra0 = or.always(a, a, vpm_read, nop) ; nop = nop(r0, r0) ;
+    sig_none ; ra1 = or.always(a, a, vpm_read, nop) ; nop = nop(r0, r0) ;
+    sig_none ; ra2 = or.always(a, a, vpm_read, nop) ; nop = nop(r0, r0) ;
+
+    // TODO: Can this be merged with above?
+    // Load XF row 0 into regfile B
+    sig_none ; rb0 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+    sig_none ; rb1 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+    sig_none ; rb2 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+    sig_none ; rb3 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+
+    // Load XF row 1 into regfile B
+    sig_none ; rb4 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+    sig_none ; rb5 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+    sig_none ; rb6 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+    sig_none ; rb7 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+
+    // Load XF row 2 into regfile B
+    sig_none ; rb8 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+    sig_none ; rb9 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+    sig_none ; rb10 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+    sig_none ; rb11 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+
+    // Load XF row 3 into regfile B
+    sig_none ; rb12 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+    sig_none ; rb13 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+    sig_none ; rb14 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+    sig_none ; rb15 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+
+    // Dot product row 0
+    sig_none ; nop = nop(r0, r0, ra0, rb0) ; r0 = fmul.always(a, b) ;
+    sig_none ; nop = nop(r0, r0, ra1, rb1) ; r1 = fmul.always(a, b) ;
+    sig_none ; r0 = fadd.always(r0, r1) ; nop = nop(r0, r0) ;
+    sig_none ; nop = nop(r0, r0, ra2, rb2) ; r1 = fmul.always(a, b) ;
+    sig_none ; r0 = fadd.always(r0, r1) ; nop = nop(r0, r0) ;
+    // X Translation
+    sig_none ; ra0 = fadd.always(r0, b, nop, rb3) ; nop = nop(r0, r0) ;
+
+    // Dot product row 1
+    sig_none ; nop = nop(r0, r0, ra0, rb4) ; r1 = fmul.always(a, b) ;
+    sig_none ; nop = nop(r0, r0, ra1, rb5) ; r2 = fmul.always(a, b) ;
+    sig_none ; r1 = fadd.always(r1, r2) ; nop = nop(r0, r0) ;
+    sig_none ; nop = nop(r0, r0, ra2, rb6) ; r2 = fmul.always(a, b) ;
+    sig_none ; r1 = fadd.always(r1, r2) ; nop = nop(r0, r0) ;
+    // Y Translation
+    sig_none ; r1 = fadd.always(r1, b, nop, rb7) ; nop = nop(r0, r0) ;
+
+    // Dot product row 2
+    sig_none ; nop = nop(r0, r0, ra0, rb8) ; r2 = fmul.always(a, b) ;
+    sig_none ; nop = nop(r0, r0, ra1, rb9) ; r3 = fmul.always(a, b) ;
+    sig_none ; r2 = fadd.always(r2, r3) ; nop = nop(r0, r0) ;
+    sig_none ; nop = nop(r0, r0, ra2, rb10) ; r3 = fmul.always(a, b) ;
+    sig_none ; r2 = fadd.always(r2, r3) ; nop = nop(r0, r0) ;
+    // Z Translation
+    sig_none ; r2 = fadd.always(r2, b, nop, rb11) ; nop = nop(r0, r0) ;
+
+    // Dot product row 3
+    sig_none ; nop = nop(r0, r0, ra0, rb12) ; r3 = fmul.always(a, b) ;
+    sig_none ; nop = nop(r0, r0, ra1, rb13) ; r0 = fmul.always(a, b) ;
+    sig_none ; r3 = fadd.always(r3, r0) ; nop = nop(r0, r0) ;
+    sig_none ; nop = nop(r0, r0, ra2, rb14) ; r0 = fmul.always(a, b) ;
+    sig_none ; r3 = fadd.always(r3, r0) ; nop = nop(r0, r0) ;
+    // W Translation
+    sig_none ; r3 = fadd.always(r3, b, nop, pay_z) ; nop = nop(r0, r0) ;
+    sig_none ; sfu_recip = or.always(r3, r3) ; nop = nop(r0, r0) ;
+
+    // Restore X from regfile
+    sig_none ; r0 = or.always(a, a, ra0, nop) ; nop = nop(r0, r0) ;
+
+    //sig_none ; r0 = or.always(a, a, vpm_read, nop) ; nop = nop(r0, r0) ;
     // Read Y; Mul X * WindowScaleX
     // r1 = vpm; r0 = r0 * uni
-    sig_none ; r1 = or.always(a, a, vpm_read, uni) ; r0 = fmul.always(r0, b) ;
+    sig_none ; /*r1 = or.always(a, a, vpm_read, uni)*/ nop = nop(r0, r0, nop, uni) ; r0 = fmul.always(r0, b) ;
     // Read Z; Mul Y * WindowScaleY
     // r2 = vpm; r1 = r1 * uni
-    sig_none ; r2 = or.always(a, a, vpm_read, uni) ; r1 = fmul.always(r1, b) ;
+    sig_none ; /*r2 = or.always(a, a, vpm_read, uni)*/ nop = nop(r0, r0, nop, uni) ; r1 = fmul.always(r1, b) ;
     // Convert Mul X * WindowScaleX to int
     // ; ra0._16a = r0
     sig_none ; ra0._16a = ftoi.always(r0, r0) ; nop = nop(r0, r0) ;
@@ -39,8 +127,8 @@ const VS_ASM_CODE: [u64; 18] = qpu! {
     // Zs: vpm = r2
     sig_none ; vpm = or.always(r2, r2) ; nop = nop(r0, r0) ;
     // Write 1/Wc = 1.0; Read Nx
-    // 1/Wc: vpm = imm(1.0); r0 = vpm
-    sig_small_imm ; vpm = or.always(b, b, vpm_read, _1_1) ; r0 = v8min.always(a, a) ;
+    // 1/Wc: vpm = r4; r0 = vpm
+    sig_none ; vpm = or.always(r4, r4, vpm_read, nop) ; r0 = v8min.always(a, a) ;
     // Write Varying0; Read Ny
     // Varying0: vpm = r0; r0 = vpm
     sig_none ; vpm = or.always(r0, r0, vpm_read, nop) ; r0 = v8min.always(a, a) ;
@@ -73,30 +161,99 @@ pub static VS_ASM: ShaderNode = ShaderNode::new(&VS_ASM_CODE);
 // Zs: vpm = ??
 // 1/Wc: vpm = ??
 
-const CS_ASM_CODE: [u64; 15] = qpu! {
-    // Read X
-    // r0 = vpm
+const CS_ASM_CODE: [u64; 59] = qpu! {
     sig_load_imm ; vr_setup = load32.always(qpu::vpm_block_read_horizontal_32(3, 1, 0)) ; nop = load32.always() ;
-    sig_none ; r0 = or.always(a, a, vpm_read, nop) ; nop = nop(r0, r0) ;
+
+    // Load XYZ into regfile A
+    sig_none ; ra0 = or.always(a, a, vpm_read, nop) ; nop = nop(r0, r0) ;
+    sig_none ; ra1 = or.always(a, a, vpm_read, nop) ; nop = nop(r0, r0) ;
+    sig_none ; ra2 = or.always(a, a, vpm_read, nop) ; nop = nop(r0, r0) ;
+
+    // TODO: Can this be merged with above?
+    // Load XF row 0 into regfile B
+    sig_none ; rb0 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+    sig_none ; rb1 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+    sig_none ; rb2 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+    sig_none ; rb3 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+
+    // Load XF row 1 into regfile B
+    sig_none ; rb4 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+    sig_none ; rb5 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+    sig_none ; rb6 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+    sig_none ; rb7 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+
+    // Load XF row 2 into regfile B
+    sig_none ; rb8 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+    sig_none ; rb9 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+    sig_none ; rb10 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+    sig_none ; rb11 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+
+    // Load XF row 3 into regfile B
+    sig_none ; rb12 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+    sig_none ; rb13 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+    sig_none ; rb14 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+    sig_none ; rb15 = or.ws.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
+
+    // Dot product row 0
+    sig_none ; nop = nop(r0, r0, ra0, rb0) ; r0 = fmul.always(a, b) ;
+    sig_none ; nop = nop(r0, r0, ra1, rb1) ; r1 = fmul.always(a, b) ;
+    sig_none ; r0 = fadd.always(r0, r1) ; nop = nop(r0, r0) ;
+    sig_none ; nop = nop(r0, r0, ra2, rb2) ; r1 = fmul.always(a, b) ;
+    sig_none ; r0 = fadd.always(r0, r1) ; nop = nop(r0, r0) ;
+    // X Translation
+    sig_none ; ra0 = fadd.always(r0, b, nop, rb3) ; nop = nop(r0, r0) ;
+
+    // Dot product row 1
+    sig_none ; nop = nop(r0, r0, ra0, rb4) ; r1 = fmul.always(a, b) ;
+    sig_none ; nop = nop(r0, r0, ra1, rb5) ; r2 = fmul.always(a, b) ;
+    sig_none ; r1 = fadd.always(r1, r2) ; nop = nop(r0, r0) ;
+    sig_none ; nop = nop(r0, r0, ra2, rb6) ; r2 = fmul.always(a, b) ;
+    sig_none ; r1 = fadd.always(r1, r2) ; nop = nop(r0, r0) ;
+    // Y Translation
+    sig_none ; r1 = fadd.always(r1, b, nop, rb7) ; nop = nop(r0, r0) ;
+
+    // Dot product row 2
+    sig_none ; nop = nop(r0, r0, ra0, rb8) ; r2 = fmul.always(a, b) ;
+    sig_none ; nop = nop(r0, r0, ra1, rb9) ; r3 = fmul.always(a, b) ;
+    sig_none ; r2 = fadd.always(r2, r3) ; nop = nop(r0, r0) ;
+    sig_none ; nop = nop(r0, r0, ra2, rb10) ; r3 = fmul.always(a, b) ;
+    sig_none ; r2 = fadd.always(r2, r3) ; nop = nop(r0, r0) ;
+    // Z Translation
+    sig_none ; r2 = fadd.always(r2, b, nop, rb11) ; nop = nop(r0, r0) ;
+
+    // Dot product row 3
+    sig_none ; nop = nop(r0, r0, ra0, rb12) ; r3 = fmul.always(a, b) ;
+    sig_none ; nop = nop(r0, r0, ra1, rb13) ; r0 = fmul.always(a, b) ;
+    sig_none ; r3 = fadd.always(r3, r0) ; nop = nop(r0, r0) ;
+    sig_none ; nop = nop(r0, r0, ra2, rb14) ; r0 = fmul.always(a, b) ;
+    sig_none ; r3 = fadd.always(r3, r0) ; nop = nop(r0, r0) ;
+    // W Translation
+    sig_none ; r3 = fadd.always(r3, b, nop, pay_z) ; nop = nop(r0, r0) ;
+
+    // Restore X from regfile
+    sig_none ; r0 = or.always(a, a, ra0, nop) ; nop = nop(r0, r0) ;
+
+    //sig_none ; r0 = or.always(a, a, vpm_read, nop) ; nop = nop(r0, r0) ;
     // Write Xc = X; Read Y
     // Xc: vpm = r0; r1 = vpm
     sig_load_imm ; vw_setup = load32.always.ws(qpu::vpm_block_write_horizontal_32(1, 0)) ; nop = load32.always() ;
-    sig_none ; vpm = or.always(r0, r0, vpm_read, nop) ; r1 = v8min.always(a, a) ;
+    sig_none ; vpm = or.always(r0, r0) ; /*r1 = v8min.always(a, a)*/ nop = nop(r0, r0) ;
     // Write Yc = Y; Read Z
     // Yc: vpm = r1; r2 = vpm
-    sig_none ; vpm = or.always(r1, r1, vpm_read, nop) ; r2 = v8min.always(a, a) ;
+    sig_none ; vpm = or.always(r1, r1) ; /*r2 = v8min.always(a, a)*/ nop = nop(r0, r0) ;
     // Write Zc = Z; Mul X * WindowScaleX
     // Zc: vpm = r2; r0 = r0 * uni
     sig_none ; vpm = or.always(r2, r2, uni, nop) ; r0 = fmul.always(r0, a) ;
     // Convert Mul X * WindowScaleX to int; Mul Y * WindowScaleY
     // ra0._16a = r0; r1 = r1 * uni
-    sig_none ; ra0._16a = ftoi.always(r0, r0) ; r1 = fmul.always(r1, a) ;
+    sig_none ; ra0._16a = ftoi.always(r0, r0, uni, nop) ; r1 = fmul.always(r1, a) ;
     // Convert Mul Y * WindowScaleY to int
     // ; ra0._16b = r1
     sig_none ; ra0._16b = ftoi.always(r1, r1) ; nop = nop(r0, r0) ;
-    // Write Wc = 1.0
-    // Wc: vpm = imm(1.0)
-    sig_small_imm ; vpm = or.always(b, b, nop, _1_1) ; nop = nop(r0, r0) ;
+    // Write Wc = W
+    // Wc: vpm = r3
+    sig_none ; vpm = or.always(r3, r3) ; nop = nop(r0, r0) ;
+    sig_none ; sfu_recip = or.always(r3, r3) ; nop = nop(r0, r0) ;
     // Write Ys|Xs = Y|X scaled
     // Ys|Xs: vpm = ra0
     sig_none ; vpm = or.always(a, a, ra0, nop) ; nop = nop(r0, r0) ;
@@ -105,7 +262,7 @@ const CS_ASM_CODE: [u64; 15] = qpu! {
     sig_none ; vpm = or.always(r2, r2) ; nop = nop(r0, r0) ;
     // Write 1/Wc = 1.0
     // 1/Wc: vpm = imm(1.0)
-    sig_small_imm ; vpm = or.always(b, b, nop, _1_1) ; nop = nop(r0, r0) ;
+    sig_none ; vpm = or.always(r4, r4) ; nop = nop(r0, r0) ;
     // END
     sig_end ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
     sig_none ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
@@ -238,10 +395,26 @@ pub fn get_texture() -> &'static Texture {
     CARD.get_or_init(|| Texture::open())
 }
 
-pub fn draw(encoder: &mut CommandEncoder) {
+pub fn draw(encoder: &mut CommandEncoder, xf: glam::Mat4) {
     let model = get_model();
     let texture = get_texture();
     let cs_vs_uniforms = [
+        ShaderUniform::Constant(qpu::transmute_f32(xf.row(0).x)),
+        ShaderUniform::Constant(qpu::transmute_f32(xf.row(0).y)),
+        ShaderUniform::Constant(qpu::transmute_f32(xf.row(0).z)),
+        ShaderUniform::Constant(qpu::transmute_f32(xf.row(0).w)),
+        ShaderUniform::Constant(qpu::transmute_f32(xf.row(1).x)),
+        ShaderUniform::Constant(qpu::transmute_f32(xf.row(1).y)),
+        ShaderUniform::Constant(qpu::transmute_f32(xf.row(1).z)),
+        ShaderUniform::Constant(qpu::transmute_f32(xf.row(1).w)),
+        ShaderUniform::Constant(qpu::transmute_f32(xf.row(2).x)),
+        ShaderUniform::Constant(qpu::transmute_f32(xf.row(2).y)),
+        ShaderUniform::Constant(qpu::transmute_f32(xf.row(2).z)),
+        ShaderUniform::Constant(qpu::transmute_f32(xf.row(2).w)),
+        ShaderUniform::Constant(qpu::transmute_f32(xf.row(3).x)),
+        ShaderUniform::Constant(qpu::transmute_f32(xf.row(3).y)),
+        ShaderUniform::Constant(qpu::transmute_f32(xf.row(3).z)),
+        ShaderUniform::Constant(qpu::transmute_f32(xf.row(3).w)),
         ShaderUniform::Constant(qpu::transmute_f32(
             (encoder.window_size().0 * 16 / 2) as f32,
         )),
@@ -302,7 +475,7 @@ pub fn draw(encoder: &mut CommandEncoder) {
         &cs_vs_uniforms,
         &cs_vs_uniforms,
     );
-    //encoder.set_depth_test(true, CompareFunction::LEqual, true);
+    encoder.set_cull_test(true, false);
     encoder.draw_indexed_primitives(
         model.ibo.clone(),
         IndexType::_16bit,

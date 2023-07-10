@@ -419,6 +419,17 @@ impl CommandEncoder {
         self.set_configuration_bits(new_configuration_bits);
     }
 
+    pub fn set_cull_test(
+        &mut self,
+        enable_forward_facing_primitive: bool,
+        enable_reverse_facing_primitive: bool,
+    ) {
+        let mut new_configuration_bits = self.configuration_bits.0;
+        new_configuration_bits.enable_forward_facing_primitive = enable_forward_facing_primitive;
+        new_configuration_bits.enable_reverse_facing_primitive = enable_reverse_facing_primitive;
+        self.set_configuration_bits(new_configuration_bits);
+    }
+
     pub fn bind_shader(
         &mut self,
         fs_single_threaded: bool,
