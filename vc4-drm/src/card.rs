@@ -720,16 +720,15 @@ mod ffi {
     }
 }
 
+use drm::control::syncobj;
 use drm::{buffer::Handle, control::Device as ControlDevice, Device};
 pub use drm_ffi::result::SystemError;
 use drm_fourcc::DrmFourcc;
 pub use ffi::{
-    drm_vc4_get_hang_state_reply, drm_vc4_submit_rcl_surface,
-    DRM_VC4_MAX_PERF_COUNTERS,
+    drm_vc4_get_hang_state_reply, drm_vc4_submit_rcl_surface, DRM_VC4_MAX_PERF_COUNTERS,
 };
 use std::future::Future;
 use std::os::fd::{AsFd, AsRawFd};
-use drm::control::syncobj;
 use tokio::io::unix::AsyncFd;
 
 #[derive(Debug)]

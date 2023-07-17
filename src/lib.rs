@@ -351,8 +351,8 @@ impl CommandEncoder {
         });
 
         self.set_depth_offset(DepthOffset {
-            depth_offset_factor: 0,
-            depth_offset_units: 0,
+            depth_offset_factor: 0.0,
+            depth_offset_units: 0.0,
         });
 
         self.set_clipper_z_scale_and_offset(ClipperZScaleAndOffset {

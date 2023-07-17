@@ -2,8 +2,11 @@ use super::ShaderNode;
 use rpi_drm::{Buffer, CommandEncoder, ShaderAttribute, ShaderUniform, TextureUniform};
 use std::io::Read;
 use std::sync;
-use vc4_drm::cl::{AttributeRecord, CompareFunction, IndexType, PrimitiveMode, TextureConfigUniform, TextureDataType, TextureMagFilterType, TextureMinFilterType, TextureWrapType};
-use vc4_drm::glam::UVec2;
+use vc4_drm::cl::{
+    AttributeRecord, CompareFunction, IndexType, PrimitiveMode, TextureConfigUniform,
+    TextureDataType, TextureMagFilterType, TextureMinFilterType, TextureWrapType,
+};
+use vc4_drm::glam::{UVec2, Vec4};
 use vc4_drm::{glam, qpu};
 
 // Ys|Xs, Zs, 1/Wc, Varyings...
@@ -101,7 +104,8 @@ const VS_ASM_CODE: [u64; 62] = qpu! {
     sig_none ; r3 = fadd.always(r3, r0) ; nop = nop(r0, r0) ;
     // W Translation
     sig_none ; r3 = fadd.always(r3, b, nop, pay_z) ; nop = nop(r0, r0) ;
-    sig_none ; sfu_recip = or.always(r3, r3) ; nop = nop(r0, r0) ;
+    //sig_none ; sfu_recip = or.always(r3, r3) ; nop = nop(r0, r0) ;
+        sig_none ; sfu_recip = or.always(a, a, ra2, nop) ; nop = nop(r0, r0) ;
 
     // Restore X from regfile
     sig_none ; r0 = or.always(a, a, ra0, nop) ; nop = nop(r0, r0) ;
@@ -124,8 +128,8 @@ const VS_ASM_CODE: [u64; 62] = qpu! {
     sig_load_imm ; vw_setup = load32.always.ws(qpu::vpm_block_write_horizontal_32(1, 0)) ; nop = load32.always() ;
     sig_none ; vpm = or.always(a, a, ra0, nop) ; nop = nop(r0, r0) ;
     // Write Zs = Z
-    // Zs: vpm = r2
-    sig_none ; vpm = or.always(r2, r2) ; nop = nop(r0, r0) ;
+    // Zs: vpm = r2 + 0.5
+    sig_small_imm ; vpm = fadd.always(r2, b, nop, _1_2) ; nop = nop(r0, r0) ;
     // Write 1/Wc = 1.0; Read Nx
     // 1/Wc: vpm = r4; r0 = vpm
     sig_none ; vpm = or.always(r4, r4, vpm_read, nop) ; r0 = v8min.always(a, a) ;
@@ -258,8 +262,8 @@ const CS_ASM_CODE: [u64; 59] = qpu! {
     // Ys|Xs: vpm = ra0
     sig_none ; vpm = or.always(a, a, ra0, nop) ; nop = nop(r0, r0) ;
     // Write Zs = Z
-    // Zs: vpm = r2
-    sig_none ; vpm = or.always(r2, r2) ; nop = nop(r0, r0) ;
+    // Zs: vpm = r2 + 0.5
+    sig_small_imm ; vpm = fadd.always(r2, b, nop, _1_2) ; nop = nop(r0, r0) ;
     // Write 1/Wc = 1.0
     // 1/Wc: vpm = imm(1.0)
     sig_none ; vpm = or.always(r4, r4) ; nop = nop(r0, r0) ;
@@ -359,13 +363,15 @@ impl Texture {
     fn open() -> Self {
         use vc4_drm::image::{Translator, TranslatorTrait};
 
-        let decoder = png::Decoder::new(std::fs::File::open("/home/citrus/citrus_normals.png").unwrap());
+        let decoder =
+            png::Decoder::new(std::fs::File::open("/home/citrus/citrus_normals.png").unwrap());
         let mut reader = decoder.read_info().unwrap();
         let size = reader.info().size();
         assert_eq!(reader.info().bit_depth, png::BitDepth::Eight);
         assert_eq!(reader.info().color_type, png::ColorType::Rgba);
 
-        let (translator, alloc_size) = Translator::new_with_alloc_size(UVec2::new(size.0, size.1), 32);
+        let (translator, alloc_size) =
+            Translator::new_with_alloc_size(UVec2::new(size.0, size.1), 32);
         let bo = Buffer::new(alloc_size);
         {
             let mut mapping = bo.mmap();
@@ -373,7 +379,9 @@ impl Texture {
                 let row = reader.next_row().unwrap().unwrap();
                 for x in 0..size.0 {
                     let xs = x as usize;
-                    let offset = translator.coordinate_to_tile_address(UVec2::new(x, y)).offset as usize;
+                    let offset = translator
+                        .coordinate_to_tile_address(UVec2::new(x, y))
+                        .offset as usize;
                     mapping.as_mut()[offset] = row.data()[xs * 4 + 2];
                     mapping.as_mut()[offset + 1] = row.data()[xs * 4 + 1];
                     mapping.as_mut()[offset + 2] = row.data()[xs * 4 + 0];

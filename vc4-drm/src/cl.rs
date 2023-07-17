@@ -282,8 +282,13 @@ impl BinClStructure for ConfigurationBits {
 
 #[derive(Default, Debug, Copy, Clone, PartialEq)]
 pub struct DepthOffset {
-    pub depth_offset_factor: u16,
-    pub depth_offset_units: u16,
+    pub depth_offset_factor: f32,
+    pub depth_offset_units: f32,
+}
+
+fn f32_to_f187(val: f32) -> u16 {
+    let val: u32 = unsafe { std::mem::transmute(val) };
+    (val >> 16) as u16
 }
 
 impl BinClStructure for DepthOffset {
@@ -291,8 +296,8 @@ impl BinClStructure for DepthOffset {
         const V3D21_DEPTH_OFFSET: u8 = 101;
         let mut buf = [0_u8; 5];
         buf[0] = V3D21_DEPTH_OFFSET;
-        buf[1..3].copy_from_slice(&self.depth_offset_factor.to_le_bytes());
-        buf[3..5].copy_from_slice(&self.depth_offset_units.to_le_bytes());
+        buf[1..3].copy_from_slice(&f32_to_f187(self.depth_offset_factor).to_le_bytes());
+        buf[3..5].copy_from_slice(&f32_to_f187(self.depth_offset_units).to_le_bytes());
         writer.write_all(&buf)
     }
 }

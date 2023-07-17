@@ -6,99 +6,78 @@ use vc4_drm::cl::{
 };
 use vc4_drm::qpu;
 
-const VS_ASM_CODE: [u64; 14] = qpu! {
-    //0x40000000 = 2.0
-    //uni = 1.0
-    //rb0 = 2 - 1 = 1
-    sig_small_imm ; rb0 = fsub.ws.always(b, a, uni, _2_1) ; nop = nop(r0, r0) ;
-    //set up VPM read for subsequent reads
-    //0x00201a00: 0000 0000 0010 0000 0001 1010 0000 0000
-    //addr: 0
-    //size: 32bit
-    //packed
-    //horizontal
-    //stride=1
-    //vectors to read = 2 (how many components)
-    sig_load_imm ; vr_setup = load32.always(qpu::vpm_block_read_horizontal_32(2, 1, 0)) ; nop = load32.always() ;
-    //uni = viewportXScale
-    //r0 = vpm * uni
-    sig_none ; nop = nop(r0, r0, vpm_read, uni) ; r0 = fmul.always(a, b) ;
-    //r1 = r0 * rb0 (1)
-    sig_none ; nop = nop(r0, r0, nop, rb0) ; r1 = fmul.always(r0, b) ;
-    //uni = viewportYScale
-    //ra0.16a = int(r1), r2 = vpm * uni
-    sig_none ; ra0._16a = ftoi.always(r1, r1, vpm_read, uni) ; r2 = fmul.always(a, b) ;
-    //r3 = r2 * rb0
-    sig_none ; nop = nop(r0, r0, nop, rb0) ; r3 = fmul.always(r2, b) ;
-    //ra0.16b = int(r3)
-    sig_none ; ra0._16b = ftoi.always(r3, r3) ; nop = nop(r0, r0) ;
-    //set up VPM write for subsequent writes
-    //0x00001a00: 0000 0000 0000 0000 0001 1010 0000 0000
-    //addr: 0
-    //size: 32bit
-    //horizontal
-    //stride = 1
+const VS_ASM_CODE: [u64; 28] = qpu! {
+    sig_load_imm ; vr_setup = load32.always(qpu::vpm_block_read_horizontal_32(4, 1, 0)) ; nop = load32.always() ;
+    sig_none ; r0 = or.always(a, a, vpm_read, nop) ; nop = nop(r0, r0) ; // Read X
+    sig_none ; ra1 = or.always(r0, r0) ; nop = nop(r0, r0) ; // Write ra1 = X
+    sig_none ; r1 = or.always(a, a, vpm_read, nop) ; nop = nop(r0, r0) ; // Read Y
+    sig_none ; ra2 = or.always(r1, r1) ; nop = nop(r0, r0) ; // Write ra2 = Y
+    sig_none ; r2 = or.always(a, a, vpm_read, nop) ; nop = nop(r0, r0) ; // Read Z
+    sig_none ; ra3 = or.always(r2, r2) ; nop = nop(r0, r0) ; // Write ra3 = Z
+    sig_none ; r3 = or.always(a, a, vpm_read, nop) ; nop = nop(r0, r0) ; // Read W
+    sig_none ; sfu_recip = or.always(r3, r3) ; nop = nop(r0, r0) ; // Recip W
+
+    sig_none ; nop = nop(r0, r0) ; nop = nop(r0, r0) ; // Wait
+
+    sig_none ; nop = nop(r0, r0, uni, nop) ; r0 = fmul.always(r0, a) ;
+    sig_none ; nop = nop(r0, r0) ; r0 = fmul.always(r0, r4) ;
+    sig_none ; ra0._16a = ftoi.always(r0, r0) ; nop = nop(r0, r0) ; // Xs = X * viewportXscale / W
+    sig_none ; nop = nop(r0, r0, uni, nop) ; r1 = fmul.always(r1, a) ;
+    sig_none ; nop = nop(r0, r0) ; r1 = fmul.always(r1, r4) ;
+    sig_none ; ra0._16b = ftoi.always(r1, r1) ; nop = nop(r0, r0) ; // Xs = X * viewportXscale / W
+
     sig_load_imm ; vw_setup = load32.always.ws(qpu::vpm_block_write_horizontal_32(1, 0)) ; nop = load32.always() ;
-    //shaded vertex format for PSE
-    // Ys and Xs
-    //vpm = ra0
-    sig_none ; vpm = or.always(a, a, ra0, nop) ; nop = nop(r0, r0);
-    // Zs
-    //uni = 0.5
-    //vpm = uni
-    sig_none ; vpm = or.always(a, a, uni, nop) ; nop = nop(r0, r0);
-    // 1.0 / Wc
-    //vpm = rb0 (1)
-    sig_none ; vpm = or.always(b, b, nop, rb0) ; nop = nop(r0, r0);
-    //END
+    sig_none ; vpm = or.always(a, a, ra0, nop) ; nop = nop(r0, r0) ; // Write Ys | Xs
+
+    sig_none ; nop = nop(r0, r0) ; r2 = fmul.always(r2, r4) ;
+    sig_small_imm ; nop = nop(r0, r0, nop, _1_2) ; r2 = fmul.always(r2, b) ;
+    sig_small_imm ; vpm = fadd.always(r2, b, nop, _1_2) ; nop = nop(r0, r0) ; // Write Zs = Z / W * 0.5 + 0.5
+
+    sig_none ; vpm = or.always(r4, r4) ; nop = nop(r0, r0) ; // Write 1 / Wc
+
+    // X Y Z varyings
+    sig_none ; vpm = or.always(a, a, ra1, nop) ; nop = nop(r0, r0) ;
+    sig_none ; vpm = or.always(a, a, ra2, nop) ; nop = nop(r0, r0) ;
+    sig_none ; vpm = or.always(a, a, ra3, nop) ; nop = nop(r0, r0) ;
+
+    // END
     sig_end ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
     sig_none ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
     sig_none ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
 };
 pub static VS_ASM: ShaderNode = ShaderNode::new(&VS_ASM_CODE);
 
-const CS_ASM_CODE: [u64; 18] = qpu! {
-    //uni = 1.0
-    //r3 = 2.0 - uni
-    sig_small_imm ; r3 = fsub.always(b, a, uni, _2_1) ; nop = nop(r0, r0);
-    sig_load_imm ; vr_setup = load32.always(qpu::vpm_block_read_horizontal_32(2, 1, 0)) ; nop = load32.always() ;
-    //r2 = vpm
-    sig_none ; r2 = or.always(a, a, vpm_read, nop) ; nop = nop(r0, r0);
+const CS_ASM_CODE: [u64; 25] = qpu! {
+    sig_load_imm ; vr_setup = load32.always(qpu::vpm_block_read_horizontal_32(4, 1, 0)) ; nop = load32.always() ;
+    sig_none ; r0 = or.always(a, a, vpm_read, nop) ; nop = nop(r0, r0) ; // Read X
+    sig_none ; r1 = or.always(a, a, vpm_read, nop) ; nop = nop(r0, r0) ; // Read Y
+    sig_none ; r2 = or.always(a, a, vpm_read, nop) ; nop = nop(r0, r0) ; // Read Z
+    sig_none ; r3 = or.always(a, a, vpm_read, nop) ; nop = nop(r0, r0) ; // Read W
+    sig_none ; sfu_recip = or.always(r3, r3) ; nop = nop(r0, r0) ; // Recip W
+
     sig_load_imm ; vw_setup = load32.always.ws(qpu::vpm_block_write_horizontal_32(1, 0)) ; nop = load32.always() ;
-    //shaded coordinates format for PTB
-    // write Xc
-    //r1 = vpm, vpm = r2
-    sig_none ; r1 = or.always(a, a, vpm_read, nop) ; vpm = v8min.always(r2, r2);
-    // write Yc
-    //uni = viewportXscale
-    //vpm = r1, r2 = r2 * uni
-    sig_none ; vpm = or.always(r1, r1, uni, nop) ; r2 = fmul.always(r2, a);
-    //uni = viewportYscale
-    //r1 = r1 * uni
-    sig_none ; nop = nop(r0, r0, uni, nop) ; r1 = fmul.always(r1, a);
-    //r0 = r2 * r3
-    sig_none ; nop = nop(r0, r0) ; r0 = fmul.always(r2, r3);
-    //ra0.16a = r0, r1 = r1 * r3
-    sig_none ; ra0._16a = ftoi.always(r0, r0) ; r1 = fmul.always(r1, r3) ;
-    //ra0.16b = r1
-    sig_none ; ra0._16b = ftoi.always(r1, r1) ; nop = nop(r0, r0) ;
-    //write Zc
-    //vpm = 0
-    sig_small_imm ; vpm = or.always(b, b, nop, _0) ; nop = nop(r0, r0) ;
-    //write Wc
-    //vpm = 1.0
-    sig_small_imm ; vpm = or.always(b, b, nop, _1_1) ; nop = nop(r0, r0) ;
-    //write Ys and Xs
-    //vpm = ra0
-    sig_none ; vpm = or.always(a, a, ra0, nop) ; nop = nop(r0, r0) ;
-    //write Zs
-    //uni = 0.5
-    //vpm = uni
-    sig_none ; vpm = or.always(a, a, uni, nop) ; nop = nop(r0, r0) ;
-    //write 1/Wc
-    //vpm = r3
-    sig_none ; vpm = or.always(r3, r3) ; nop = nop(r0, r0) ;
-    //END
+    sig_none ; vpm = or.always(r0, r0) ; nop = nop(r0, r0) ; // Write Xc
+    sig_none ; vpm = or.always(r1, r1) ; nop = nop(r0, r0) ; // Write Yc
+
+    sig_none ; nop = nop(r0, r0, uni, nop) ; r0 = fmul.always(r0, a) ;
+    sig_none ; nop = nop(r0, r0) ; r0 = fmul.always(r0, r4) ;
+    sig_none ; ra0._16a = ftoi.always(r0, r0) ; nop = nop(r0, r0) ; // Xs = X * viewportXscale / W
+    sig_none ; nop = nop(r0, r0, uni, nop) ; r1 = fmul.always(r1, a) ;
+    sig_none ; nop = nop(r0, r0) ; r1 = fmul.always(r1, r4) ;
+    sig_none ; ra0._16b = ftoi.always(r1, r1) ; nop = nop(r0, r0) ; // Xs = X * viewportXscale / W
+
+    sig_none ; vpm = or.always(r2, r2) ; nop = nop(r0, r0) ; // Write Zc
+    sig_none ; vpm = or.always(r3, r3) ; nop = nop(r0, r0) ; // Write Wc
+
+    sig_none ; vpm = or.always(a, a, ra0, nop) ; nop = nop(r0, r0) ; // Write Ys | Xs
+
+    sig_none ; nop = nop(r0, r0) ; r2 = fmul.always(r2, r4) ;
+    sig_small_imm ; nop = nop(r0, r0, nop, _1_2) ; r2 = fmul.always(r2, b) ;
+    sig_small_imm ; vpm = fadd.always(r2, b, nop, _1_2) ; nop = nop(r0, r0) ; // Write Zs = Z / W * 0.5 + 0.5
+
+    sig_none ; vpm = or.always(r4, r4) ; nop = nop(r0, r0) ; // Write 1 / Wc
+
+    // END
     sig_end ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
     sig_none ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
     sig_none ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
@@ -132,8 +111,21 @@ const FS_ASM_TEX_CODE: [u64; 18] = qpu! {
 };
 pub static FS_ASM_TEX: ShaderNode = ShaderNode::new(&FS_ASM_TEX_CODE);
 
-const FS_ASM_CODE: [u64; 5] = qpu! {
+const FS_ASM_CODE: [u64; 14] = qpu! {
     sig_load_imm ; r0 = load32.always(0xffa14ccc) ; nop = load32() ;
+
+    sig_none ; nop = nop(r0, r0, pay_w, vary) ; r1 = fmul.always(a, b) ;
+    sig_none ; r1 = fadd.always(r1, r5) ; nop = nop(r0, r0) ;
+    sig_none ; nop = nop.pm(r0, r0) ; r0._8c = v8min.always(r1, r1) ;
+
+    sig_none ; nop = nop(r0, r0, pay_w, vary) ; r1 = fmul.always(a, b) ;
+    sig_none ; r1 = fadd.always(r1, r5) ; nop = nop(r0, r0) ;
+    sig_none ; nop = nop.pm(r0, r0) ; r0._8b = v8min.always(r1, r1) ;
+
+    sig_none ; nop = nop(r0, r0, pay_w, vary) ; r1 = fmul.always(a, b) ;
+    sig_none ; r1 = fadd.always(r1, r5) ; nop = nop(r0, r0) ;
+    sig_none ; nop = nop.pm(r0, r0) ; r0._8a = v8min.always(r1, r1) ;
+
     sig_none ; tlb_color_all = or.always(r0, r0) ; nop = nop(r0, r0) ;
     sig_end ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
     sig_none ; nop = nop(r0, r0) ; nop = nop(r0, r0) ;
@@ -141,47 +133,35 @@ const FS_ASM_CODE: [u64; 5] = qpu! {
 };
 pub static FS_ASM: ShaderNode = ShaderNode::new(&FS_ASM_CODE);
 
-pub fn bind(encoder: &mut CommandEncoder, vbo_vs: Buffer, vbo_cs: Buffer, tex: Buffer) {
+pub fn bind(encoder: &mut CommandEncoder, vbo_vs: Buffer) {
     let vs_uniforms = [
-        ShaderUniform::Constant(qpu::transmute_f32(1.0_f32)),
         ShaderUniform::Constant(qpu::transmute_f32(
             (encoder.window_size().0 * 16 / 2) as f32,
         )),
         ShaderUniform::Constant(qpu::transmute_f32(
             (encoder.window_size().1 * 16 / 2) as f32,
         )),
-        ShaderUniform::Constant(qpu::transmute_f32(1.0_f32)),
     ];
     encoder.bind_shader(
         true,
-        0,
+        3,
         *FS_ASM.handle.get().unwrap(),
         *VS_ASM.handle.get().unwrap(),
         *CS_ASM.handle.get().unwrap(),
-        &[ShaderAttribute {
-            buffer: vbo_vs,
-            record: AttributeRecord {
-                address: 0,
-                number_of_bytes_minus_1: 15,
-                stride: 16,
-                vertex_shader_vpm_offset: 0,
-                coordinate_shader_vpm_offset: 0,
-            },
-            vs: true,
-            cs: false,
-        },
+        &[
             ShaderAttribute {
-                buffer: vbo_cs,
+                buffer: vbo_vs,
                 record: AttributeRecord {
                     address: 0,
-                    number_of_bytes_minus_1: 7,
-                    stride: 8,
+                    number_of_bytes_minus_1: 15,
+                    stride: 16,
                     vertex_shader_vpm_offset: 0,
                     coordinate_shader_vpm_offset: 0,
                 },
-                vs: false,
+                vs: true,
                 cs: true,
-            }],
+            },
+        ],
         &[/*ShaderUniform::Texture(TextureUniform {
             buffer: tex,
             config: TextureConfigUniform {

@@ -1,15 +1,14 @@
 #![recursion_limit = "10000"]
 mod shaders;
 
+use num_traits::float::FloatConst;
 use rpi_drm::{Buffer, CommandEncoder};
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
-use vc4_drm::{cl::PrimitiveMode, glam, glam::UVec2};
 use vc4_drm::cl::IndexType;
-use num_traits::float::FloatConst;
+use vc4_drm::{cl::PrimitiveMode, glam, glam::UVec2};
 
 async fn async_main() {
     shaders::initialize_shaders().await;
-    shaders::test_model::get_model();
 
     let display_framebuffers = rpi_drm::open_and_allocate_display_framebuffers();
 
@@ -36,7 +35,6 @@ async fn async_main() {
     };
 
     let vbo_vs = Buffer::new(48);
-    let vbo_cs = Buffer::new(24);
     let ibo = Buffer::new(6);
     {
         let mut ibo_map = ibo.mmap();
@@ -82,63 +80,61 @@ async fn async_main() {
         if wait_usec > 0 {
             //tokio::time::sleep(Duration::from_micros(wait_usec as u64)).await;
         }
+        //vc4_drm::tokio::time::sleep(Duration::from_millis(1000u64)).await;
 
         let quaternion = read_quaternion();
+        //println!("{}", quaternion);
+        let xf = glam::Mat4::from_quat(quaternion.inverse());
+        let xf2 = glam::Mat4::from_scale_rotation_translation(
+            glam::Vec3::new(0.25, -0.25, -0.25),
+            glam::Quat::IDENTITY,
+            glam::Vec3::new(0.0, 0.0, 0.5),
+        );
+        let xf_persp = glam::Mat4::perspective_lh(60.0 * f32::PI() / 180.0, 1.0, 0.1, 1.0);
+        let xf_total = xf_persp * xf2 * xf;
         {
             let mut vbo_map = vbo_vs.mmap();
             let mut cur = Cursor::new(vbo_map.as_mut());
 
             let side_len = 3.0 / f32::sqrt(3.0) / 2.0;
 
-            let v0 = quaternion.mul_vec3([-side_len, 0.5, 0.0].into());
+            let v0 = xf_total.mul_vec4([-side_len, 0.5, 0.0, 1.0].into());
+            //println!("{}", v0);
             cur.write_all(&v0.x.to_le_bytes()).unwrap();
             cur.write_all(&v0.y.to_le_bytes()).unwrap();
-            cur.write_all(&0.0_f32.to_le_bytes()).unwrap();
-            cur.write_all(&0.0_f32.to_le_bytes()).unwrap();
+            cur.write_all(&v0.z.to_le_bytes()).unwrap();
+            cur.write_all(&v0.w.to_le_bytes()).unwrap();
 
-            let v1 = quaternion.mul_vec3([side_len, 0.5, 0.0].into());
+            let v1 = xf_total.mul_vec4([side_len, 0.5, 0.0, 1.0].into());
             cur.write_all(&v1.x.to_le_bytes()).unwrap();
             cur.write_all(&v1.y.to_le_bytes()).unwrap();
-            cur.write_all(&0.0_f32.to_le_bytes()).unwrap();
-            cur.write_all(&0.0_f32.to_le_bytes()).unwrap();
+            cur.write_all(&v1.z.to_le_bytes()).unwrap();
+            cur.write_all(&v1.w.to_le_bytes()).unwrap();
 
-            let v2 = quaternion.mul_vec3([0.0, -1.0, 0.0].into());
+            let v2 = xf_total.mul_vec4([0.0, -1.0, 0.0, 1.0].into());
             cur.write_all(&v2.x.to_le_bytes()).unwrap();
             cur.write_all(&v2.y.to_le_bytes()).unwrap();
-            cur.write_all(&0.0_f32.to_le_bytes()).unwrap();
-            cur.write_all(&0.0_f32.to_le_bytes()).unwrap();
+            cur.write_all(&v2.z.to_le_bytes()).unwrap();
+            cur.write_all(&v2.w.to_le_bytes()).unwrap();
         }
 
+        /*
         let xf = glam::Mat4::from_quat(quaternion);
-        let xf2 = glam::Mat4::from_scale_rotation_translation(glam::Vec3::new(1.0, 1.0, 0.5), glam::Quat::IDENTITY, glam::Vec3::new(0.0, 0.0, 0.5));
+        //let xf = glam::Mat4::from_quat(glam::Quat::IDENTITY);
+        let xf2 = glam::Mat4::from_scale_rotation_translation(
+            glam::Vec3::new(1.0, 1.0, 0.5),
+            glam::Quat::IDENTITY,
+            glam::Vec3::new(0.0, 0.0, 0.5),
+        );
         let xf3 = glam::Mat4::perspective_lh(60.0 * f32::PI() / 180.0, 1.0, 0.0, 1.0);
+        */
 
         command_encoder.clear();
         command_encoder.begin_pass();
-        //shaders::test_triangle::bind(&mut command_encoder, vbo_vs.clone(), vbo_cs.clone(), tex_bo.clone());
-        //command_encoder.draw_array_primitives(PrimitiveMode::Triangles, 0, 3);
-        //command_encoder.draw_indexed_primitives(ibo.clone(), IndexType::_16bit, PrimitiveMode::Triangles, 0, 3, 2);
-        shaders::test_model::draw(&mut command_encoder, xf3 * xf2 * xf);
+        shaders::test_triangle::bind(&mut command_encoder, vbo_vs.clone());
+        command_encoder.draw_array_primitives(PrimitiveMode::Triangles, 0, 3);
+        //shaders::test_model::draw(&mut command_encoder, xf3 * xf);
         command_encoder.end_pass();
-
-        {
-            let mut vbo_map = vbo_cs.mmap();
-            let mut cur = Cursor::new(vbo_map.as_mut());
-
-            let side_len = 3.0 / f32::sqrt(3.0) / 2.0;
-
-            let v0 = quaternion.mul_vec3([-side_len, 0.5, 0.0].into());
-            cur.write_all(&v0.x.to_le_bytes()).unwrap();
-            cur.write_all(&v0.y.to_le_bytes()).unwrap();
-
-            let v1 = quaternion.mul_vec3([side_len, 0.5, 0.0].into());
-            cur.write_all(&v1.x.to_le_bytes()).unwrap();
-            cur.write_all(&v1.y.to_le_bytes()).unwrap();
-
-            let v2 = quaternion.mul_vec3([0.0, -1.0, 0.0].into());
-            cur.write_all(&v2.x.to_le_bytes()).unwrap();
-            cur.write_all(&v2.y.to_le_bytes()).unwrap();
-        }
 
         let clear_color = 0xff000000; // ARGB
         command_encoder
