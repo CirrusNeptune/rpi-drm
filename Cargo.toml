@@ -8,3 +8,6 @@ edition = "2021"
 vc4-drm = { path = "vc4-drm" }
 png = "0.17.9"
 num-traits = "0.2.15"
+
+[build-dependencies]
+vc4-mesa-compiler = { git = "https://github.com/CirrusNeptune/mesa", branch = "vc4-glsl" }

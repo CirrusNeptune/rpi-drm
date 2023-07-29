@@ -1,5 +1,8 @@
+pub mod test_gen;
 pub mod test_model;
 pub mod test_triangle;
+pub mod test_triangle2;
+pub mod test_triangle3;
 
 use std::sync::OnceLock;
 use vc4_drm::drm::buffer::Handle;
@@ -31,14 +34,24 @@ impl ShaderNode {
     }
 }
 
+macro_rules! initialize_modules {
+    ($($ids:ident),*) => {
+        tokio::join!(
+            $(
+                $ids::VS_ASM.initialize(),
+                $ids::CS_ASM.initialize(),
+                $ids::FS_ASM.initialize(),
+            )*
+        )
+    }
+}
+
 pub async fn initialize_shaders() {
     let _ = tokio::join!(
         test_triangle::VS_ASM.initialize(),
         test_triangle::CS_ASM.initialize(),
         test_triangle::FS_ASM.initialize(),
         test_triangle::FS_ASM_TEX.initialize(),
-        test_model::VS_ASM.initialize(),
-        test_model::CS_ASM.initialize(),
-        test_model::FS_ASM.initialize(),
     );
+    let _ = initialize_modules!(test_model, test_gen, test_triangle2, test_triangle3);
 }

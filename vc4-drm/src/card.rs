@@ -721,7 +721,12 @@ mod ffi {
 }
 
 use drm::control::syncobj;
-use drm::{buffer::Handle, control::Device as ControlDevice, Device};
+use drm::{
+    buffer::Handle,
+    control::Device as ControlDevice,
+    control::{Event, Events},
+    Device,
+};
 pub use drm_ffi::result::SystemError;
 use drm_fourcc::DrmFourcc;
 pub use ffi::{
@@ -816,26 +821,31 @@ impl<'a> Drop for BufferMapping<'a> {
     }
 }
 
-#[allow(nonstandard_style)]
-pub struct drm_event_vblank {
-    pub user_data: u64,
-    pub tv_sec: u32,
-    pub tv_usec: u32,
-    pub sequence: u32,
-    pub crtc_id: u32,
-}
-
-#[allow(nonstandard_style)]
-pub struct drm_event_crtc_sequence {
-    pub user_data: u64,
-    pub time_ns: i64,
-    pub sequence: u64,
-}
-
-pub enum Event {
-    VBlank(drm_event_vblank),
-    FlipComplete,
-    CrtcSequence(drm_event_crtc_sequence),
+pub struct SubmitClArgs<'a> {
+    pub bin_cl: &'a [u8],
+    pub shader_rec: &'a [u8],
+    pub uniforms: &'a [u32],
+    pub bo_handles: &'a [Handle],
+    pub shader_rec_count: u32,
+    pub width: u16,
+    pub height: u16,
+    pub min_x_tile: u8,
+    pub min_y_tile: u8,
+    pub max_x_tile: u8,
+    pub max_y_tile: u8,
+    pub color_read: drm_vc4_submit_rcl_surface,
+    pub color_write: drm_vc4_submit_rcl_surface,
+    pub zs_read: drm_vc4_submit_rcl_surface,
+    pub zs_write: drm_vc4_submit_rcl_surface,
+    pub msaa_color_write: drm_vc4_submit_rcl_surface,
+    pub msaa_zs_write: drm_vc4_submit_rcl_surface,
+    pub clear_color: [u32; 2],
+    pub clear_z: u32,
+    pub clear_s: u8,
+    pub use_clear_color: bool,
+    pub fixed_rcl_order: bool,
+    pub rcl_order_increasing_x: bool,
+    pub rcl_order_increasing_y: bool,
 }
 
 /// Simple helper methods for opening a `Card`.
@@ -869,67 +879,8 @@ impl Card {
                 let amount = nix::unistd::read(fd.as_raw_fd(), &mut event_buf)
                     .or::<()>(Ok(0))
                     .unwrap();
-                if amount == 0 {
-                    break;
-                }
-
-                let mut cur: usize = 0;
-                while cur < amount {
-                    const DRM_EVENT_VBLANK: u32 = 1;
-                    const DRM_EVENT_FLIP_COMPLETE: u32 = 2;
-                    const DRM_EVENT_CRTC_SEQUENCE: u32 = 3;
-
-                    #[allow(nonstandard_style)]
-                    struct drm_event {
-                        type_: u32,
-                        length: u32,
-                    }
-
-                    let head = drm_event {
-                        type_: u32::from_ne_bytes(event_buf[cur..cur + 4].try_into().unwrap()),
-                        length: u32::from_ne_bytes(event_buf[cur + 4..cur + 8].try_into().unwrap()),
-                    };
-
-                    match head.type_ {
-                        DRM_EVENT_VBLANK => {
-                            event_handler(Event::VBlank(drm_event_vblank {
-                                user_data: u64::from_ne_bytes(
-                                    event_buf[cur + 8..cur + 16].try_into().unwrap(),
-                                ),
-                                tv_sec: u32::from_ne_bytes(
-                                    event_buf[cur + 16..cur + 20].try_into().unwrap(),
-                                ),
-                                tv_usec: u32::from_ne_bytes(
-                                    event_buf[cur + 20..cur + 24].try_into().unwrap(),
-                                ),
-                                sequence: u32::from_ne_bytes(
-                                    event_buf[cur + 24..cur + 28].try_into().unwrap(),
-                                ),
-                                crtc_id: u32::from_ne_bytes(
-                                    event_buf[cur + 28..cur + 32].try_into().unwrap(),
-                                ),
-                            }));
-                        }
-                        DRM_EVENT_FLIP_COMPLETE => {
-                            event_handler(Event::FlipComplete);
-                        }
-                        DRM_EVENT_CRTC_SEQUENCE => {
-                            event_handler(Event::CrtcSequence(drm_event_crtc_sequence {
-                                user_data: u64::from_ne_bytes(
-                                    event_buf[cur + 8..cur + 16].try_into().unwrap(),
-                                ),
-                                time_ns: i64::from_ne_bytes(
-                                    event_buf[cur + 16..cur + 24].try_into().unwrap(),
-                                ),
-                                sequence: u64::from_ne_bytes(
-                                    event_buf[cur + 24..cur + 32].try_into().unwrap(),
-                                ),
-                            }));
-                        }
-                        _ => {}
-                    }
-
-                    cur += head.length as usize;
+                for event in Events::with_event_buf(event_buf, amount) {
+                    event_handler(event);
                 }
             }
         }
@@ -939,7 +890,7 @@ impl Card {
         loop {
             let mut flip_occurred = false;
             self.receive_events(|e| match e {
-                Event::FlipComplete => {
+                Event::PageFlip(_) => {
                     flip_occurred = true;
                 }
                 _ => {}
@@ -953,124 +904,56 @@ impl Card {
 
     pub fn vc4_submit_cl(
         &self,
-        bin_cl: &[u8],
-        shader_rec: &[u8],
-        uniforms: &[u32],
-        bo_handles: &[Handle],
-        shader_rec_count: u32,
-        width: u16,
-        height: u16,
-        min_x_tile: u8,
-        min_y_tile: u8,
-        max_x_tile: u8,
-        max_y_tile: u8,
-        color_read: drm_vc4_submit_rcl_surface,
-        color_write: drm_vc4_submit_rcl_surface,
-        zs_read: drm_vc4_submit_rcl_surface,
-        zs_write: drm_vc4_submit_rcl_surface,
-        msaa_color_write: drm_vc4_submit_rcl_surface,
-        msaa_zs_write: drm_vc4_submit_rcl_surface,
-        clear_color: [u32; 2],
-        clear_z: u32,
-        clear_s: u8,
-        use_clear_color: bool,
-        fixed_rcl_order: bool,
-        rcl_order_increasing_x: bool,
-        rcl_order_increasing_y: bool,
+        args: SubmitClArgs,
         in_sync: Option<syncobj::Handle>,
         out_sync: Option<syncobj::Handle>,
     ) -> Result<u64, SystemError> {
-        let flags = if use_clear_color { 1 << 0 } else { 0 }
-            | if fixed_rcl_order { 1 << 1 } else { 0 }
-            | if rcl_order_increasing_x { 1 << 2 } else { 0 }
-            | if rcl_order_increasing_y { 1 << 3 } else { 0 };
+        let flags = if args.use_clear_color { 1 << 0 } else { 0 }
+            | if args.fixed_rcl_order { 1 << 1 } else { 0 }
+            | if args.rcl_order_increasing_x {
+                1 << 2
+            } else {
+                0
+            }
+            | if args.rcl_order_increasing_y {
+                1 << 3
+            } else {
+                0
+            };
         ffi::vc4_submit_cl(
             self.as_fd().as_raw_fd(),
-            bin_cl,
-            shader_rec,
-            uniforms,
-            bo_handles,
-            shader_rec_count,
-            width,
-            height,
-            min_x_tile,
-            min_y_tile,
-            max_x_tile,
-            max_y_tile,
-            color_read,
-            color_write,
-            zs_read,
-            zs_write,
-            msaa_color_write,
-            msaa_zs_write,
-            clear_color,
-            clear_z,
-            clear_s,
+            args.bin_cl,
+            args.shader_rec,
+            args.uniforms,
+            args.bo_handles,
+            args.shader_rec_count,
+            args.width,
+            args.height,
+            args.min_x_tile,
+            args.min_y_tile,
+            args.max_x_tile,
+            args.max_y_tile,
+            args.color_read,
+            args.color_write,
+            args.zs_read,
+            args.zs_write,
+            args.msaa_color_write,
+            args.msaa_zs_write,
+            args.clear_color,
+            args.clear_z,
+            args.clear_s,
             flags,
             in_sync,
             out_sync,
         )
     }
 
-    pub fn vc4_submit_cl_async(
-        &self,
-        bin_cl: &[u8],
-        shader_rec: &[u8],
-        uniforms: &[u32],
-        bo_handles: &[Handle],
-        shader_rec_count: u32,
-        width: u16,
-        height: u16,
-        min_x_tile: u8,
-        min_y_tile: u8,
-        max_x_tile: u8,
-        max_y_tile: u8,
-        color_read: drm_vc4_submit_rcl_surface,
-        color_write: drm_vc4_submit_rcl_surface,
-        zs_read: drm_vc4_submit_rcl_surface,
-        zs_write: drm_vc4_submit_rcl_surface,
-        msaa_color_write: drm_vc4_submit_rcl_surface,
-        msaa_zs_write: drm_vc4_submit_rcl_surface,
-        clear_color: [u32; 2],
-        clear_z: u32,
-        clear_s: u8,
-        use_clear_color: bool,
-        fixed_rcl_order: bool,
-        rcl_order_increasing_x: bool,
-        rcl_order_increasing_y: bool,
-    ) -> Result<impl Future, SystemError> {
+    pub fn vc4_submit_cl_async(&self, args: SubmitClArgs) -> Result<impl Future, SystemError> {
         let sync_file = {
             let syncobj = self.create_syncobj(false)?;
 
             let sync_file = {
-                self.vc4_submit_cl(
-                    bin_cl,
-                    shader_rec,
-                    uniforms,
-                    bo_handles,
-                    shader_rec_count,
-                    width,
-                    height,
-                    min_x_tile,
-                    min_y_tile,
-                    max_x_tile,
-                    max_y_tile,
-                    color_read,
-                    color_write,
-                    zs_read,
-                    zs_write,
-                    msaa_color_write,
-                    msaa_zs_write,
-                    clear_color,
-                    clear_z,
-                    clear_s,
-                    use_clear_color,
-                    fixed_rcl_order,
-                    rcl_order_increasing_x,
-                    rcl_order_increasing_y,
-                    None,
-                    Some(syncobj),
-                )?;
+                self.vc4_submit_cl(args, Some(syncobj), None)?;
 
                 self.syncobj_to_fd(syncobj, true)
             };

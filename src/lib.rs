@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::{Arc, OnceLock};
-use vc4_drm::card::{BufferMapping, Card};
+use vc4_drm::card::{BufferMapping, Card, SubmitClArgs};
 use vc4_drm::cl::*;
 use vc4_drm::drm::{
     buffer,
@@ -140,8 +140,8 @@ impl From<Buffer> for buffer::Handle {
     }
 }
 
-pub struct ShaderAttribute {
-    pub buffer: Buffer,
+pub struct ShaderAttribute<'a> {
+    pub buffer: &'a Buffer,
     pub record: AttributeRecord,
     pub vs: bool,
     pub cs: bool,
@@ -152,8 +152,8 @@ pub struct TextureUniform {
     pub config: TextureConfigUniform,
 }
 
-pub enum ShaderUniform {
-    Texture(TextureUniform),
+pub enum ShaderUniform<'a> {
+    Texture(&'a TextureUniform),
     Constant(u32),
 }
 
@@ -258,6 +258,22 @@ impl CommandEncoder {
         self.window_size
     }
 
+    pub fn vp_x_scale(&self) -> f32 {
+        (self.window_size.0 * 16 / 2) as f32
+    }
+
+    pub fn vp_y_scale(&self) -> f32 {
+        (self.window_size.1 * 16 / 2) as f32
+    }
+
+    pub fn vp_z_scale(&self) -> f32 {
+        self.clipper_z_scale_and_offset.0.viewport_z_scale_zc_to_zs
+    }
+
+    pub fn vp_z_offset(&self) -> f32 {
+        self.clipper_z_scale_and_offset.0.viewport_z_offset_zc_to_zs
+    }
+
     pub fn relocate_buffer(&mut self, buffer: Buffer) -> u32 {
         if let Some(index) = self.bo_buffer_map.get(&buffer) {
             *index
@@ -356,8 +372,8 @@ impl CommandEncoder {
         });
 
         self.set_clipper_z_scale_and_offset(ClipperZScaleAndOffset {
-            viewport_z_scale_zc_to_zs: 1.0,
-            viewport_z_offset_zc_to_zs: 0.0,
+            viewport_z_scale_zc_to_zs: 0.5,
+            viewport_z_offset_zc_to_zs: 0.5,
         });
 
         self.set_point_size(PointSize { point_size: 1.0 });
@@ -580,32 +596,32 @@ impl CommandEncoder {
         use vc4_drm::card::drm_vc4_submit_rcl_surface;
         let fb_bo_idx = self.relocate_buffer(color_write);
         get_card()
-            .vc4_submit_cl_async(
-                &self.bin_cl_buf,
-                &self.shader_rec_buf,
-                &self.uniforms,
-                &self.bo_handles,
-                self.shader_rec_count,
-                self.window_size.0,
-                self.window_size.1,
-                0,
-                0,
-                self.width_in_tiles - 1,
-                self.height_in_tiles - 1,
-                drm_vc4_submit_rcl_surface::default(),
-                drm_vc4_submit_rcl_surface::new_tiled_rgba8(fb_bo_idx),
-                drm_vc4_submit_rcl_surface::default(),
-                drm_vc4_submit_rcl_surface::default(),
-                drm_vc4_submit_rcl_surface::default(),
-                drm_vc4_submit_rcl_surface::default(),
-                [clear_color, clear_color],
-                0,
-                0,
-                true,
-                false,
-                false,
-                false,
-            )
+            .vc4_submit_cl_async(SubmitClArgs {
+                bin_cl: &self.bin_cl_buf,
+                shader_rec: &self.shader_rec_buf,
+                uniforms: &self.uniforms,
+                bo_handles: &self.bo_handles,
+                shader_rec_count: self.shader_rec_count,
+                width: self.window_size.0,
+                height: self.window_size.1,
+                min_x_tile: 0,
+                min_y_tile: 0,
+                max_x_tile: self.width_in_tiles - 1,
+                max_y_tile: self.height_in_tiles - 1,
+                color_read: drm_vc4_submit_rcl_surface::default(),
+                color_write: drm_vc4_submit_rcl_surface::new_tiled_rgba8(fb_bo_idx),
+                zs_read: drm_vc4_submit_rcl_surface::default(),
+                zs_write: drm_vc4_submit_rcl_surface::default(),
+                msaa_color_write: drm_vc4_submit_rcl_surface::default(),
+                msaa_zs_write: drm_vc4_submit_rcl_surface::default(),
+                clear_color: [clear_color, clear_color],
+                clear_z: 0,
+                clear_s: 0,
+                use_clear_color: true,
+                fixed_rcl_order: false,
+                rcl_order_increasing_x: false,
+                rcl_order_increasing_y: false,
+            })
             .expect("Unable to vc4_submit_cl")
             .await;
     }

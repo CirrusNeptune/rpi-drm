@@ -1,9 +1,6 @@
 use super::ShaderNode;
-use rpi_drm::{Buffer, CommandEncoder, ShaderAttribute, ShaderUniform, TextureUniform};
-use vc4_drm::cl::{
-    AttributeRecord, TextureConfigUniform, TextureDataType, TextureMagFilterType,
-    TextureMinFilterType, TextureWrapType,
-};
+use rpi_drm::{Buffer, CommandEncoder, ShaderAttribute, ShaderUniform};
+use vc4_drm::cl::AttributeRecord;
 use vc4_drm::qpu;
 
 const VS_ASM_CODE: [u64; 28] = qpu! {
@@ -133,7 +130,7 @@ const FS_ASM_CODE: [u64; 14] = qpu! {
 };
 pub static FS_ASM: ShaderNode = ShaderNode::new(&FS_ASM_CODE);
 
-pub fn bind(encoder: &mut CommandEncoder, vbo_vs: Buffer) {
+pub fn bind(encoder: &mut CommandEncoder, vbo_vs: &Buffer) {
     let vs_uniforms = [
         ShaderUniform::Constant(qpu::transmute_f32(
             (encoder.window_size().0 * 16 / 2) as f32,
@@ -148,20 +145,18 @@ pub fn bind(encoder: &mut CommandEncoder, vbo_vs: Buffer) {
         *FS_ASM.handle.get().unwrap(),
         *VS_ASM.handle.get().unwrap(),
         *CS_ASM.handle.get().unwrap(),
-        &[
-            ShaderAttribute {
-                buffer: vbo_vs,
-                record: AttributeRecord {
-                    address: 0,
-                    number_of_bytes_minus_1: 15,
-                    stride: 16,
-                    vertex_shader_vpm_offset: 0,
-                    coordinate_shader_vpm_offset: 0,
-                },
-                vs: true,
-                cs: true,
+        &[ShaderAttribute {
+            buffer: vbo_vs,
+            record: AttributeRecord {
+                address: 0,
+                number_of_bytes_minus_1: 15,
+                stride: 16,
+                vertex_shader_vpm_offset: 0,
+                coordinate_shader_vpm_offset: 0,
             },
-        ],
+            vs: true,
+            cs: true,
+        }],
         &[/*ShaderUniform::Texture(TextureUniform {
             buffer: tex,
             config: TextureConfigUniform {

@@ -5,7 +5,7 @@ authors = ["Cirrus <cirrus.neptune@protonmail.com>"]
 edition = "2021"
 
 [dependencies]
-drm = { git = "https://github.com/CirrusNeptune/drm-rs.git", branch = "syncobjs" }
+drm = { git = "https://github.com/CirrusNeptune/drm-rs.git", branch = "with-event-buf" }
 num = "0.4.0"
 glam = "0.24.0"
 enum_dispatch = "0.3.11"
@@ -16,12 +16,12 @@ default-features = false
 
 [dependencies.drm-sys]
 git = "https://github.com/CirrusNeptune/drm-rs.git"
-branch = "syncobjs"
+branch = "with-event-buf"
 version = "0.4.0"
 
 [dependencies.drm-ffi]
 git = "https://github.com/CirrusNeptune/drm-rs.git"
-branch = "syncobjs"
+branch = "with-event-buf"
 version = "0.5.0"
 
 [dependencies.drm-fourcc]

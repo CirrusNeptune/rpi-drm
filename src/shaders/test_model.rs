@@ -3,10 +3,10 @@ use rpi_drm::{Buffer, CommandEncoder, ShaderAttribute, ShaderUniform, TextureUni
 use std::io::Read;
 use std::sync;
 use vc4_drm::cl::{
-    AttributeRecord, CompareFunction, IndexType, PrimitiveMode, TextureConfigUniform,
+    AttributeRecord, IndexType, PrimitiveMode, TextureConfigUniform,
     TextureDataType, TextureMagFilterType, TextureMinFilterType, TextureWrapType,
 };
-use vc4_drm::glam::{UVec2, Vec4};
+use vc4_drm::glam::UVec2;
 use vc4_drm::{glam, qpu};
 
 // Ys|Xs, Zs, 1/Wc, Varyings...
@@ -438,7 +438,7 @@ pub fn draw(encoder: &mut CommandEncoder, xf: glam::Mat4) {
         *CS_ASM.handle.get().unwrap(),
         &[
             ShaderAttribute {
-                buffer: model.vs_vbo.clone(),
+                buffer: &model.vs_vbo,
                 record: AttributeRecord {
                     address: 0,
                     number_of_bytes_minus_1: 31,
@@ -450,7 +450,7 @@ pub fn draw(encoder: &mut CommandEncoder, xf: glam::Mat4) {
                 cs: false,
             },
             ShaderAttribute {
-                buffer: model.cs_vbo.clone(),
+                buffer: &model.cs_vbo,
                 record: AttributeRecord {
                     address: 0,
                     number_of_bytes_minus_1: 11,
@@ -462,7 +462,7 @@ pub fn draw(encoder: &mut CommandEncoder, xf: glam::Mat4) {
                 cs: true,
             },
         ],
-        &[ShaderUniform::Texture(TextureUniform {
+        &[ShaderUniform::Texture(&TextureUniform {
             buffer: texture.bo.clone(),
             config: TextureConfigUniform {
                 base_address: 0,

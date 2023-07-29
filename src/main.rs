@@ -4,7 +4,6 @@ mod shaders;
 use num_traits::float::FloatConst;
 use rpi_drm::{Buffer, CommandEncoder};
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
-use vc4_drm::cl::IndexType;
 use vc4_drm::{cl::PrimitiveMode, glam, glam::UVec2};
 
 async fn async_main() {
@@ -131,7 +130,7 @@ async fn async_main() {
 
         command_encoder.clear();
         command_encoder.begin_pass();
-        shaders::test_triangle::bind(&mut command_encoder, vbo_vs.clone());
+        shaders::test_triangle2::bind(&mut command_encoder, &vbo_vs, &vbo_vs);
         command_encoder.draw_array_primitives(PrimitiveMode::Triangles, 0, 3);
         //shaders::test_model::draw(&mut command_encoder, xf3 * xf);
         command_encoder.end_pass();
