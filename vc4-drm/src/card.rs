@@ -2,6 +2,27 @@
 
 #[derive(Default, Debug, Copy, Clone)]
 #[repr(u8)]
+pub enum VC4Buffer {
+    None = 0,
+    #[default]
+    Color = 1,
+    Zs = 2,
+    Z = 3,
+    VgMask = 4,
+    Full = 5,
+}
+
+#[derive(Default, Debug, Copy, Clone)]
+#[repr(u8)]
+pub enum VC4Format {
+    #[default]
+    RGBA8888 = 0,
+    BGR565Dithered = 1,
+    BGR565 = 2,
+}
+
+#[derive(Default, Debug, Copy, Clone)]
+#[repr(u8)]
 pub enum VC4RenderConfigFormat {
     BGR565Dithered = 0,
     #[default]
@@ -50,29 +71,58 @@ mod ffi {
         }
     }
 
-    use super::{VC4RenderConfigFormat, VC4TilingFormat};
+    use super::{VC4Buffer, VC4Format, VC4RenderConfigFormat, VC4TilingFormat};
 
     impl drm_vc4_submit_rcl_surface {
-        pub fn new_tiled_rgba8(hindex: u32) -> Self {
+        pub fn new_tiled_rgba8_color_write(hindex: u32) -> Self {
             Self {
-                hindex: hindex,
+                hindex,
                 offset: 0,
                 bits: 0,
                 flags: 0,
             }
-            .format(VC4RenderConfigFormat::RGBA8888)
+            .color_write_format(VC4RenderConfigFormat::RGBA8888)
+            .color_write_tiling(VC4TilingFormat::T)
+        }
+
+        pub fn new_tiled_zs(hindex: u32) -> Self {
+            Self {
+                hindex,
+                offset: 0,
+                bits: 0,
+                flags: 0,
+            }
+            .buffer(VC4Buffer::Zs)
             .tiling(VC4TilingFormat::T)
         }
 
-        pub fn format(mut self, format: VC4RenderConfigFormat) -> Self {
+        pub fn color_write_format(mut self, format: VC4RenderConfigFormat) -> Self {
             self.bits &= !(0x3 << 2);
             self.bits |= (format as u16) << 2;
             self
         }
 
-        pub fn tiling(mut self, tiling: VC4TilingFormat) -> Self {
+        pub fn color_write_tiling(mut self, tiling: VC4TilingFormat) -> Self {
             self.bits &= !(0x3 << 6);
             self.bits |= (tiling as u16) << 6;
+            self
+        }
+
+        pub fn buffer(mut self, buffer: VC4Buffer) -> Self {
+            self.bits &= !(0x7 << 0);
+            self.bits |= (buffer as u16) << 0;
+            self
+        }
+
+        pub fn tiling(mut self, tiling: VC4TilingFormat) -> Self {
+            self.bits &= !(0x3 << 4);
+            self.bits |= (tiling as u16) << 4;
+            self
+        }
+
+        pub fn format(mut self, format: VC4Format) -> Self {
+            self.bits &= !(0x3 << 8);
+            self.bits |= (format as u16) << 8;
             self
         }
     }
@@ -879,6 +929,9 @@ impl Card {
                 let amount = nix::unistd::read(fd.as_raw_fd(), &mut event_buf)
                     .or::<()>(Ok(0))
                     .unwrap();
+                if amount == 0 {
+                    break;
+                }
                 for event in Events::with_event_buf(event_buf, amount) {
                     event_handler(event);
                 }
@@ -953,7 +1006,7 @@ impl Card {
             let syncobj = self.create_syncobj(false)?;
 
             let sync_file = {
-                self.vc4_submit_cl(args, Some(syncobj), None)?;
+                self.vc4_submit_cl(args, None, Some(syncobj))?;
 
                 self.syncobj_to_fd(syncobj, true)
             };
@@ -1019,6 +1072,15 @@ impl Card {
             pitch: size.0 * 4,
             buffer,
         })
+    }
+
+    pub fn vc4_create_z_buffer(&self, size: (u32, u32)) -> Result<Buffer, SystemError> {
+        use crate::image::*;
+        let size_in_bytes = Translator::alloc_size(size.into(), 32);
+        let buffer = self.vc4_create_bo(size_in_bytes)?;
+        self.vc4_set_tiling(buffer.handle, true)
+            .expect("unable to enable tiling");
+        Ok(buffer)
     }
 
     pub fn vc4_create_shader_bo(&self, data: &[u64]) -> Result<Handle, SystemError> {

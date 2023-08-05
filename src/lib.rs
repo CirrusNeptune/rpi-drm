@@ -17,6 +17,7 @@ pub struct DisplayFramebuffers {
     pub size: (u16, u16),
     crtc: crtc::Handle,
     pub framebuffers: [Framebuffer; 2],
+    pub z_buffer: Buffer,
     connector: connector::Handle,
     mode: Mode,
 }
@@ -73,9 +74,11 @@ pub fn open_and_allocate_display_framebuffers() -> DisplayFramebuffers {
             .expect("unable to get encoder info");
         let crtc = encoder_info.crtc().expect("unable to get crtc");
 
+        let fb_size = (mode.size().0 as u32, mode.size().1 as u32);
+
         let create_framebuffer = || {
             let image_buffer = card
-                .vc4_create_bgra_image_buffer((mode.size().0 as u32, mode.size().1 as u32))
+                .vc4_create_bgra_image_buffer(fb_size)
                 .expect("unable to create image buffer");
             let framebuffer = card
                 .add_framebuffer(&image_buffer, 32, 32)
@@ -86,10 +89,15 @@ pub fn open_and_allocate_display_framebuffers() -> DisplayFramebuffers {
             }
         };
 
+        let z_buffer = card
+            .vc4_create_z_buffer(fb_size)
+            .expect("unable to create z buffer");
+
         return DisplayFramebuffers {
             size: mode.size(),
             crtc,
             framebuffers: [create_framebuffer(), create_framebuffer()],
+            z_buffer: Buffer::from_vc4_buffer(z_buffer),
             connector: *connector,
             mode,
         };
@@ -361,7 +369,7 @@ impl CommandEncoder {
             antialiased_points_and_lines: false,
             rasteriser_oversample_mode: 0,
             enable_depth_offset: false,
-            clockwise_primitives: false,
+            clockwise_primitives: true,
             enable_reverse_facing_primitive: true,
             enable_forward_facing_primitive: true,
         });
@@ -554,7 +562,7 @@ impl CommandEncoder {
 
     pub fn draw_indexed_primitives(
         &mut self,
-        index_buffer: Buffer,
+        index_buffer: &Buffer,
         index_type: IndexType,
         primitive_mode: PrimitiveMode,
         start: u32,
@@ -563,7 +571,7 @@ impl CommandEncoder {
     ) {
         self.flush_state();
 
-        let index_buffer_idx = self.relocate_buffer(index_buffer);
+        let index_buffer_idx = self.relocate_buffer(index_buffer.clone());
 
         GemRelocations {
             buffer0: index_buffer_idx,
@@ -592,9 +600,16 @@ impl CommandEncoder {
 
     expand_commands!(command_recorder_set);
 
-    pub async fn submit(&mut self, clear_color: u32, color_write: Buffer) {
+    pub async fn submit(
+        &mut self,
+        clear_color: u32,
+        clear_z: u32,
+        color_write: &Buffer,
+        zs_write: &Buffer,
+    ) {
         use vc4_drm::card::drm_vc4_submit_rcl_surface;
-        let fb_bo_idx = self.relocate_buffer(color_write);
+        let fb_bo_idx = self.relocate_buffer(color_write.clone());
+        let zs_idx = self.relocate_buffer(zs_write.clone());
         get_card()
             .vc4_submit_cl_async(SubmitClArgs {
                 bin_cl: &self.bin_cl_buf,
@@ -609,13 +624,13 @@ impl CommandEncoder {
                 max_x_tile: self.width_in_tiles - 1,
                 max_y_tile: self.height_in_tiles - 1,
                 color_read: drm_vc4_submit_rcl_surface::default(),
-                color_write: drm_vc4_submit_rcl_surface::new_tiled_rgba8(fb_bo_idx),
+                color_write: drm_vc4_submit_rcl_surface::new_tiled_rgba8_color_write(fb_bo_idx),
                 zs_read: drm_vc4_submit_rcl_surface::default(),
-                zs_write: drm_vc4_submit_rcl_surface::default(),
+                zs_write: drm_vc4_submit_rcl_surface::new_tiled_zs(zs_idx),
                 msaa_color_write: drm_vc4_submit_rcl_surface::default(),
                 msaa_zs_write: drm_vc4_submit_rcl_surface::default(),
                 clear_color: [clear_color, clear_color],
-                clear_z: 0,
+                clear_z,
                 clear_s: 0,
                 use_clear_color: true,
                 fixed_rcl_order: false,
