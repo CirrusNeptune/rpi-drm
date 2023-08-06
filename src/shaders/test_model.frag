@@ -9,5 +9,6 @@ void main() {
     vec4 src_color = texture(tex, vtf_uv);
     src_color.a = 0.5;
 
-    frag_color = vec4(mix(gl_ColorLoad.rgb, src_color.rgb, src_color.a), src_color.a);
+    //frag_color = vec4(mix(gl_ColorLoad.rgb, src_color.rgb, src_color.a), src_color.a);
+    frag_color = src_color;
 }

@@ -21,9 +21,14 @@ async fn async_main() {
     };
     let mut read_quaternion = || {
         let mut quaternion_buf: [u8; 64] = [0; 64];
-        imu_handle.seek(SeekFrom::Start(0)).unwrap();
-        let read_num = imu_handle.read(&mut quaternion_buf).unwrap();
-        let quaternion_string = std::str::from_utf8(&quaternion_buf[0..read_num]).unwrap();
+        if imu_handle.seek(SeekFrom::Start(0)).is_err() {
+            return Quat::IDENTITY;
+        }
+        let read_num = imu_handle.read(&mut quaternion_buf);
+        if read_num.is_err() {
+            return Quat::IDENTITY;
+        }
+        let quaternion_string = std::str::from_utf8(&quaternion_buf[0..read_num.unwrap()]).unwrap();
         let mut quaterion_arr: [f32; 4] = [0.0; 4];
         for (i, comp) in quaternion_string.split(' ').enumerate() {
             use std::str::FromStr;

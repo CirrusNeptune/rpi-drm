@@ -1,8 +1,8 @@
 pub mod card;
 pub mod cl;
-pub mod image;
 pub mod qpu;
 
 pub use drm;
-pub use glam;
 pub use tokio;
+pub use vc4_image_addr;
+pub use vc4_image_addr::glam;

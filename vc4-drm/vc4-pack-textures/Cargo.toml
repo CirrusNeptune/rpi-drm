@@ -1,0 +1,11 @@
+[package]
+name = "vc4-pack-textures"
+version = "0.1.0"
+authors = ["Cirrus <cirrus.neptune@protonmail.com>"]
+edition = "2021"
+
+[dependencies]
+png = "0.17.9"
+flate2 = "1.0"
+smallvec = "1.11.0"
+vc4-image-addr = { path = "../vc4-image-addr" }

@@ -1061,7 +1061,7 @@ impl Card {
         &self,
         size: (u32, u32),
     ) -> Result<ImageBuffer, SystemError> {
-        use crate::image::*;
+        use vc4_image_addr::*;
         let size_in_bytes = Translator::alloc_size(size.into(), 32);
         let buffer = self.vc4_create_bo(size_in_bytes)?;
         self.vc4_set_tiling(buffer.handle, true)
@@ -1075,7 +1075,7 @@ impl Card {
     }
 
     pub fn vc4_create_z_buffer(&self, size: (u32, u32)) -> Result<Buffer, SystemError> {
-        use crate::image::*;
+        use vc4_image_addr::*;
         let size_in_bytes = Translator::alloc_size(size.into(), 32);
         let buffer = self.vc4_create_bo(size_in_bytes)?;
         self.vc4_set_tiling(buffer.handle, true)

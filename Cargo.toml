@@ -6,9 +6,9 @@ edition = "2021"
 
 [dependencies]
 vc4-drm = { path = "vc4-drm" }
-png = "0.17.9"
 num-traits = "0.2.15"
-vc4-mesa-compiler = { git = "https://github.com/CirrusNeptune/mesa", branch = "vc4-glsl" }
+flate2 = "1.0"
 
 [build-dependencies]
 vc4-mesa-compiler = { git = "https://github.com/CirrusNeptune/mesa", branch = "vc4-glsl" }
+vc4-pack-textures = { path = "vc4-drm/vc4-pack-textures" }

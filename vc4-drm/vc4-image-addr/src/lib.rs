@@ -1,5 +1,7 @@
 use enum_dispatch::enum_dispatch;
+pub use glam;
 use glam::{UVec2, Vec2Swizzles};
+pub use num;
 use num::Integer;
 
 struct UVec2PowerOfTwoFactor {
@@ -29,7 +31,7 @@ impl UVec2PowerOfTwoFactor {
     }
 
     pub fn round_up_div(&self, val: UVec2) -> UVec2 {
-        (val + self.mask - 1) >> self.shift
+        (val + self.mask) >> self.shift
     }
 }
 

@@ -5,10 +5,8 @@ authors = ["Cirrus <cirrus.neptune@protonmail.com>"]
 edition = "2021"
 
 [dependencies]
+vc4-image-addr = { path = "vc4-image-addr" }
 drm = { git = "https://github.com/Smithay/drm-rs.git", branch = "develop" }
-num = "0.4.0"
-glam = "0.24.0"
-enum_dispatch = "0.3.11"
 
 [dependencies.libc]
 version = "^0.2.29"

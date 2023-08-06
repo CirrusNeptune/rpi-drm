@@ -35,10 +35,10 @@ fn div_round_up(n: u16, d: u16) -> u16 {
 }
 
 use fmt::Debug;
-use num::cast::AsPrimitive;
 use std::convert::TryFrom;
 use std::fmt;
 use std::marker::Copy;
+use vc4_image_addr::num::cast::AsPrimitive;
 
 fn checked_into<T: AsPrimitive<U>, U: 'static + Copy + TryFrom<T>>(v: T) -> U
 where

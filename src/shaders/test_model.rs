@@ -1,9 +1,9 @@
 use rpi_drm::{Buffer, CommandEncoder, TextureUniform};
-use std::io::Read;
+use std::fs;
+use std::io::{Read, BufReader};
 use std::sync::OnceLock;
-use vc4_drm::cl::{
-    CompareFunction, IndexType, PrimitiveMode, TextureConfigUniform, TextureDataType,
-};
+use flate2::read::ZlibDecoder;
+use vc4_drm::cl::{CompareFunction, IndexType, PrimitiveMode, TextureConfigUniform, TextureDataType, TextureMinFilterType};
 use vc4_drm::glam::{Mat4, UVec2};
 
 pub struct Model {
@@ -16,7 +16,7 @@ pub struct Model {
 
 impl Model {
     fn open() -> Self {
-        let mut file = std::fs::File::open("/home/citrus/citrus_assets_geo_node.cit").unwrap();
+        let mut file = BufReader::new(fs::File::open("resources/citrus_assets_geo_node.cit").unwrap());
         let mut head_data: [u8; 12] = [0; 12];
         file.read(&mut head_data).unwrap();
         assert_eq!(
@@ -58,49 +58,44 @@ pub fn get_model() -> &'static Model {
 pub fn get_texture() -> &'static TextureUniform {
     static TEX: OnceLock<TextureUniform> = OnceLock::new();
     TEX.get_or_init(|| {
-        use vc4_drm::image::{Translator, TranslatorTrait};
+        use vc4_drm::vc4_image_addr::{Translator, TranslatorTrait};
+        use flate2::read::ZlibDecoder;
 
-        let decoder =
-            png::Decoder::new(std::fs::File::open("/home/citrus/citrus_normals.png").unwrap());
-        let mut reader = decoder.read_info().unwrap();
-        let size = reader.info().size();
-        assert_eq!(reader.info().bit_depth, png::BitDepth::Eight);
-        assert_eq!(reader.info().color_type, png::ColorType::Rgba);
+        let mut ctx_f = fs::File::open("resources/generated/citrus_normals.ctx").unwrap();
 
-        let (translator, alloc_size) =
-            Translator::new_with_alloc_size(UVec2::new(size.0, size.1), 32);
-        let bo = Buffer::new(alloc_size);
+        let mut header_data = [0_u8; 16];
+        ctx_f.read(&mut header_data).unwrap();
+        assert_eq!(
+            u32::from_le_bytes(header_data[0..4].try_into().unwrap()),
+            0x005072C2_u32
+        );
+        let total_size = u32::from_le_bytes(header_data[4..8].try_into().unwrap());
+        let num_mips = u16::from_le_bytes(header_data[8..10].try_into().unwrap());
+        let mip0_page_offset = u16::from_le_bytes(header_data[10..12].try_into().unwrap());
+        let width = u16::from_le_bytes(header_data[12..14].try_into().unwrap());
+        let height = u16::from_le_bytes(header_data[14..16].try_into().unwrap());
+
+        let bo = Buffer::new(total_size);
         {
             let mut mapping = bo.mmap();
-            for y in (0..size.1).rev() {
-                let row = reader.next_row().unwrap().unwrap();
-                for x in 0..size.0 {
-                    let xs = x as usize;
-                    let offset = translator
-                        .coordinate_to_tile_address(UVec2::new(x, y))
-                        .offset as usize;
-                    mapping.as_mut()[offset] = row.data()[xs * 4 + 2];
-                    mapping.as_mut()[offset + 1] = row.data()[xs * 4 + 1];
-                    mapping.as_mut()[offset + 2] = row.data()[xs * 4 + 0];
-                    mapping.as_mut()[offset + 3] = row.data()[xs * 4 + 3];
-                }
-            }
+            let mut d = ZlibDecoder::new(ctx_f);
+            d.read_exact(mapping.as_mut()).unwrap();
         }
 
         TextureUniform {
             buffer: bo,
             config: TextureConfigUniform {
-                base_address: 0,
+                base_address: mip0_page_offset as _,
                 cache_swizzle: 0,
                 cube_map: false,
                 flip_y: false,
                 data_type: TextureDataType::RGBA8888,
-                num_mips: 1,
-                height: size.1 as _,
+                num_mips: num_mips as _,
+                height,
                 etc_flip: false,
-                width: size.0 as _,
+                width,
                 mag_filt: Default::default(),
-                min_filt: Default::default(),
+                min_filt: TextureMinFilterType::LinearMipLinear,
                 wrap_t: Default::default(),
                 wrap_s: Default::default(),
             },

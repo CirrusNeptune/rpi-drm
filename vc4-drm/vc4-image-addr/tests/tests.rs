@@ -1,5 +1,5 @@
 use glam::UVec2;
-use vc4_drm::image::*;
+use vc4_image_addr::*;
 
 fn assert_translate(translator: &Translator, x: u32, y: u32, expected_offset: u32) {
     let vec = UVec2::new(x, y);

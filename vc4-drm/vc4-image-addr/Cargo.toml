@@ -1,0 +1,10 @@
+[package]
+name = "vc4-image-addr"
+version = "0.1.0"
+authors = ["Cirrus <cirrus.neptune@protonmail.com>"]
+edition = "2021"
+
+[dependencies]
+glam = "0.24.0"
+enum_dispatch = "0.3.11"
+num = "0.4.0"
