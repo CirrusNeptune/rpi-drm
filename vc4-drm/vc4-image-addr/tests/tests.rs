@@ -105,3 +105,18 @@ fn vc4_image_32bpp_utiles_lt_npot() {
     assert_translate(&translator, 0, 7, 3 * 64 + 3 * 16);
     assert_translate(&translator, 7, 7, 4 * 64 + 3 * 16 + 3 * 4);
 }
+
+#[test]
+fn vc4_image_32bpp_utiles_lt_pot16() {
+    let translator = Translator::new((16, 16).into(), 32);
+
+    assert_translate(&translator, 0, 0, 0);
+    assert_translate(&translator, 3, 0, 3 * 4);
+    assert_translate(&translator, 0, 3, 12 * 4);
+    assert_translate(&translator, 3, 3, 15 * 4);
+
+    assert_translate(&translator, 4, 0, 64);
+    assert_translate(&translator, 7, 0, 64 + 3 * 4);
+    assert_translate(&translator, 0, 7, 4 * 64 + 3 * 16);
+    assert_translate(&translator, 7, 7, 5 * 64 + 3 * 16 + 3 * 4);
+}

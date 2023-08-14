@@ -1,22 +1,25 @@
-use rpi_drm::{Buffer, CommandEncoder, TextureUniform};
-use std::fs;
-use std::io::{Read, BufReader};
-use std::sync::OnceLock;
 use flate2::read::ZlibDecoder;
-use vc4_drm::cl::{CompareFunction, IndexType, PrimitiveMode, TextureConfigUniform, TextureDataType, TextureMinFilterType};
-use vc4_drm::glam::{Mat4, UVec2};
+use rpi_drm::{Buffer, BufferView, CommandEncoder, TextureUniform};
+use std::fs;
+use std::io::{BufReader, Read, Seek};
+use std::sync::OnceLock;
+use vc4_drm::cl::{
+    CompareFunction, IndexType, PrimitiveMode, TextureConfigUniform, TextureDataType,
+    TextureMinFilterType,
+};
+use vc4_drm::glam::{Mat3, Mat4, UVec2};
 
 pub struct Model {
-    cs_vbo: Buffer,
-    vs_vbo: Buffer,
-    ibo: Buffer,
+    cs_vbo: BufferView,
+    vs_vbo: BufferView,
+    ibo: BufferView,
     num_indices: u32,
     num_vertices: u32,
 }
 
 impl Model {
     fn open() -> Self {
-        let mut file = BufReader::new(fs::File::open("resources/citrus_assets_geo_node.cit").unwrap());
+        let mut file = fs::File::open("resources/citrus_assets_geo_node.cit").unwrap();
         let mut head_data: [u8; 12] = [0; 12];
         file.read(&mut head_data).unwrap();
         assert_eq!(
@@ -26,24 +29,23 @@ impl Model {
         let num_vertices = u32::from_le_bytes(head_data[4..8].try_into().unwrap());
         let num_indices = u32::from_le_bytes(head_data[8..12].try_into().unwrap());
 
-        let mut read_buf = |size: u32| {
-            let buffer = Buffer::new(size);
-            {
-                let mut mapping = buffer.mmap();
-                file.read(mapping.as_mut()[0..size as usize].as_mut())
-                    .unwrap();
-            }
-            buffer
-        };
-
-        let cs_vbo = read_buf(num_vertices * 12);
-        let vs_vbo = read_buf(num_vertices * 32);
-        let ibo = read_buf(num_indices * 2);
+        let vs_vbo_off = num_vertices * 12;
+        let ibo_off = vs_vbo_off + num_vertices * 56;
+        let buffer_size = ibo_off + num_indices * 2;
+        let buffer = Buffer::new(buffer_size);
+        {
+            let mut mapping = buffer.mmap();
+            file.read(mapping.as_mut()).unwrap();
+        }
+        assert_eq!(
+            file.stream_position().unwrap(),
+            file.metadata().unwrap().len()
+        );
 
         Self {
-            cs_vbo,
-            vs_vbo,
-            ibo,
+            cs_vbo: BufferView::from_buffer_and_range(buffer.clone(), 0..vs_vbo_off),
+            vs_vbo: BufferView::from_buffer_and_range(buffer.clone(), vs_vbo_off..ibo_off),
+            ibo: BufferView::from_buffer_and_range(buffer, ibo_off..buffer_size),
             num_indices,
             num_vertices,
         }
@@ -58,8 +60,8 @@ pub fn get_model() -> &'static Model {
 pub fn get_texture() -> &'static TextureUniform {
     static TEX: OnceLock<TextureUniform> = OnceLock::new();
     TEX.get_or_init(|| {
-        use vc4_drm::vc4_image_addr::{Translator, TranslatorTrait};
         use flate2::read::ZlibDecoder;
+        use vc4_drm::vc4_image_addr::{Translator, TranslatorTrait};
 
         let mut ctx_f = fs::File::open("resources/generated/citrus_normals.ctx").unwrap();
 
@@ -103,10 +105,10 @@ pub fn get_texture() -> &'static TextureUniform {
     })
 }
 
-pub fn draw(encoder: &mut CommandEncoder, xf: &Mat4) {
+pub fn draw(encoder: &mut CommandEncoder, xfn: &Mat3, xf: &Mat4) {
     let model = get_model();
     let texture = get_texture();
-    super::generated::test_model::bind(encoder, &model.cs_vbo, &model.vs_vbo, xf, texture);
+    super::generated::test_model::bind(encoder, &model.cs_vbo, &model.vs_vbo, xf, xfn, texture);
     encoder.set_depth_test(true, CompareFunction::LEqual, true);
     encoder.set_cull_test(true, false);
     encoder.draw_indexed_primitives(

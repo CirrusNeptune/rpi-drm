@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::io::Write;
+use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 use vc4_drm::card::{BufferMapping, Card, SubmitClArgs};
 use vc4_drm::cl::*;
@@ -140,11 +141,27 @@ impl Buffer {
     pub fn handle(&self) -> buffer::Handle {
         self.0 .0.handle()
     }
+
+    pub fn size(&self) -> u32 {
+        self.0 .0.size()
+    }
 }
 
 impl From<Buffer> for buffer::Handle {
     fn from(value: Buffer) -> Self {
         value.handle()
+    }
+}
+
+pub struct BufferView {
+    pub buffer: Buffer,
+    pub range: Range<u32>,
+}
+
+impl BufferView {
+    pub fn from_buffer_and_range(buffer: Buffer, range: Range<u32>) -> BufferView {
+        debug_assert!(range.end <= buffer.size());
+        Self { buffer, range }
     }
 }
 
@@ -562,7 +579,7 @@ impl CommandEncoder {
 
     pub fn draw_indexed_primitives(
         &mut self,
-        index_buffer: &Buffer,
+        index_buffer: &BufferView,
         index_type: IndexType,
         primitive_mode: PrimitiveMode,
         start: u32,
@@ -571,7 +588,7 @@ impl CommandEncoder {
     ) {
         self.flush_state();
 
-        let index_buffer_idx = self.relocate_buffer(index_buffer.clone());
+        let index_buffer_idx = self.relocate_buffer(index_buffer.buffer.clone());
 
         GemRelocations {
             buffer0: index_buffer_idx,
@@ -584,7 +601,7 @@ impl CommandEncoder {
             index_type,
             primitive_mode,
             length,
-            address_of_indices_list: (index_type as u32 + 1) * start,
+            address_of_indices_list: index_buffer.range.start + (index_type as u32 + 1) * start,
             maximum_index,
         }
         .encode(&mut self.bin_cl_buf)

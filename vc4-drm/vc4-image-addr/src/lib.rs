@@ -318,7 +318,7 @@ impl Translator {
     pub fn new_with_alloc_size(image_size: UVec2, bpp: u32) -> (Self, u32) {
         let (utile_size, bpp_shift) = Self::utile_size_and_bpp_shift(bpp);
 
-        if image_size.x < (4 << utile_size.shift.x) || image_size.y < (4 << utile_size.shift.y) {
+        if image_size.x <= (4 << utile_size.shift.x) || image_size.y <= (4 << utile_size.shift.y) {
             let size_in_utile = utile_size.round_up_div(image_size);
             let translator = if size_in_utile.x.is_power_of_two() {
                 LTTranslator {

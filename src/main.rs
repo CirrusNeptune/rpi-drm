@@ -58,24 +58,28 @@ async fn async_main() {
 
         let quaternion = read_quaternion();
         //println!("{}", quaternion);
-        let xf = Mat4::from_quat(quaternion.inverse());
-        let xf2 = Mat4::from_scale_rotation_translation(
-            Vec3::new(0.25, -0.25, -0.25),
-            Quat::IDENTITY,
-            Vec3::new(0.0, 0.0, 0.5),
-        );
-        let xf_persp = Mat4::perspective_lh(60.0 * f32::PI() / 180.0, 1.0, 0.1, 1.0);
-        let xf_total = xf_persp * xf2 * xf;
-        let xf_total2 = xf_total * Mat4::from_axis_angle(Vec3::Z, 180.0 * f32::PI() / 180.0);
-        let xf_total3 = xf_total * Mat4::from_axis_angle(Vec3::Z, 90.0 * f32::PI() / 180.0);
-        let xf_total4 = xf_total * Mat4::from_axis_angle(Vec3::Z, -90.0 * f32::PI() / 180.0);
+        let xf2 = Mat4::perspective_lh(60.0 * f32::PI() / 180.0, 1.0, 0.1, 1.0)
+            * Mat4::from_scale_rotation_translation(
+                Vec3::new(0.25, -0.25, -0.25),
+                Quat::IDENTITY,
+                Vec3::new(0.0, 0.0, 0.5),
+            );
+        let build_mats = |q: Quat, angle: f32| {
+            let xfn = Mat3::from_quat(q) * Mat3::from_axis_angle(Vec3::Z, angle);
+            (xfn, xf2 * Mat4::from_mat3(xfn))
+        };
+        let mats = [
+            build_mats(quaternion, 0.0),
+            build_mats(quaternion, 180.0 * f32::PI() / 180.0),
+            build_mats(quaternion, 90.0 * f32::PI() / 180.0),
+            build_mats(quaternion, -90.0 * f32::PI() / 180.0),
+        ];
 
         command_encoder.clear();
         command_encoder.begin_pass();
-        test_model::draw(&mut command_encoder, &xf_total);
-        test_model::draw(&mut command_encoder, &xf_total2);
-        test_model::draw(&mut command_encoder, &xf_total3);
-        test_model::draw(&mut command_encoder, &xf_total4);
+        for mat in mats {
+            test_model::draw(&mut command_encoder, &mat.0, &mat.1);
+        }
         command_encoder.end_pass();
 
         // A8R8G8B8
